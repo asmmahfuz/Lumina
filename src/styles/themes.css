@@ -1,0 +1,135 @@
+/**
+ * Lumina Reader - 5 Circadian Reading Themes
+ * OLED Pure Dark, Slate Night, Warm Sepia, Soft Paper Cream, Crisp Light
+ */
+
+/* 1. OLED Pure Dark (Default for pitch-black reading & zero power draw) */
+[data-theme="oled"],
+:root:not([data-theme]) {
+  --color-bg: #000000;
+  --color-surface: #111111;
+  --color-surface-hover: #1c1c1c;
+  --color-surface-active: #262626;
+  --color-surface-glass: rgba(17, 17, 17, 0.85);
+  --color-border: #27272a;
+  --color-border-subtle: #1e1e22;
+
+  --color-text-primary: #e4e4e7;
+  --color-text-secondary: #a1a1aa;
+  --color-text-muted: #71717a;
+
+  --color-accent: #6366f1;
+  --color-accent-hover: #4f46e5;
+  --color-accent-subtle: rgba(99, 102, 241, 0.15);
+  --color-accent-text: #ffffff;
+
+  --color-shadow: rgba(0, 0, 0, 0.7);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.6);
+  --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.8);
+  --reader-contrast-filter: none;
+}
+
+/* 2. Slate Night (Cool-toned dark mode for dim environments) */
+[data-theme="slate"] {
+  --color-bg: #0f172a;
+  --color-surface: #1e293b;
+  --color-surface-hover: #293548;
+  --color-surface-active: #334155;
+  --color-surface-glass: rgba(30, 41, 59, 0.88);
+  --color-border: #334155;
+  --color-border-subtle: #243044;
+
+  --color-text-primary: #f8fafc;
+  --color-text-secondary: #94a3b8;
+  --color-text-muted: #64748b;
+
+  --color-accent: #38bdf8;
+  --color-accent-hover: #0284c7;
+  --color-accent-subtle: rgba(56, 189, 248, 0.15);
+  --color-accent-text: #0f172a;
+
+  --color-shadow: rgba(15, 23, 42, 0.6);
+  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.4);
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.5);
+  --shadow-lg: 0 10px 25px rgba(15, 23, 42, 0.7);
+  --reader-contrast-filter: none;
+}
+
+/* 3. Warm Sepia (Warm incandescent lamplight reading) */
+[data-theme="sepia"] {
+  --color-bg: #fbf0d9;
+  --color-surface: #f3e5c8;
+  --color-surface-hover: #ead7b5;
+  --color-surface-active: #dfc9a1;
+  --color-surface-glass: rgba(243, 229, 200, 0.9);
+  --color-border: #e3ceaa;
+  --color-border-subtle: #ecd8b8;
+
+  --color-text-primary: #423223;
+  --color-text-secondary: #6e5844;
+  --color-text-muted: #8c735b;
+
+  --color-accent: #b45309;
+  --color-accent-hover: #92400e;
+  --color-accent-subtle: rgba(180, 83, 9, 0.12);
+  --color-accent-text: #ffffff;
+
+  --color-shadow: rgba(66, 50, 35, 0.15);
+  --shadow-sm: 0 1px 3px rgba(66, 50, 35, 0.08);
+  --shadow-md: 0 4px 12px rgba(66, 50, 35, 0.12);
+  --shadow-lg: 0 10px 25px rgba(66, 50, 35, 0.18);
+  --reader-contrast-filter: sepia(0.08);
+}
+
+/* 4. Soft Paper Cream (Physical book daylight feel) */
+[data-theme="paper"] {
+  --color-bg: #faf8f5;
+  --color-surface: #f1ece4;
+  --color-surface-hover: #e6dfd4;
+  --color-surface-active: #dcd4c7;
+  --color-surface-glass: rgba(241, 236, 228, 0.9);
+  --color-border: #e2dacd;
+  --color-border-subtle: #ece5d9;
+
+  --color-text-primary: #2d2a26;
+  --color-text-secondary: #5c5852;
+  --color-text-muted: #7c766e;
+
+  --color-accent: #3b82f6;
+  --color-accent-hover: #2563eb;
+  --color-accent-subtle: rgba(59, 130, 246, 0.12);
+  --color-accent-text: #ffffff;
+
+  --color-shadow: rgba(45, 42, 38, 0.12);
+  --shadow-sm: 0 1px 3px rgba(45, 42, 38, 0.06);
+  --shadow-md: 0 4px 12px rgba(45, 42, 38, 0.1);
+  --shadow-lg: 0 10px 25px rgba(45, 42, 38, 0.15);
+  --reader-contrast-filter: none;
+}
+
+/* 5. Crisp Light (High-contrast bright daylight) */
+[data-theme="light"] {
+  --color-bg: #ffffff;
+  --color-surface: #f4f4f5;
+  --color-surface-hover: #e4e4e7;
+  --color-surface-active: #d4d4d8;
+  --color-surface-glass: rgba(244, 244, 245, 0.9);
+  --color-border: #e4e4e7;
+  --color-border-subtle: #f0f0f2;
+
+  --color-text-primary: #18181b;
+  --color-text-secondary: #71717a;
+  --color-text-muted: #a1a1aa;
+
+  --color-accent: #4f46e5;
+  --color-accent-hover: #4338ca;
+  --color-accent-subtle: rgba(79, 70, 229, 0.12);
+  --color-accent-text: #ffffff;
+
+  --color-shadow: rgba(0, 0, 0, 0.1);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.12);
+  --reader-contrast-filter: none;
+}

@@ -1,0 +1,102 @@
+/**
+ * Lumina Reader - Fixed-Layout Documents Studio Styles (PDF & DJVU)
+ * Canvas styling, synchronized text selection layer, and thumbnail hover effects
+ */
+
+/* 1. Fixed Document Canvas Page Container */
+.lumina-fixed-page-wrapper {
+  position: relative;
+  margin: 0 auto;
+  box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--color-border);
+  background-color: #ffffff;
+  border-radius: var(--radius-xs);
+  transition: box-shadow 150ms ease;
+  user-select: text;
+}
+
+.lumina-fixed-page-wrapper:hover {
+  box-shadow: 0 14px 40px -4px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--color-accent);
+}
+
+.lumina-fixed-canvas {
+  display: block;
+  user-select: none;
+  pointer-events: none;
+  border-radius: var(--radius-xs);
+}
+
+/* 2. Synchronized PDF.js Text Selection Layer */
+.textLayer {
+  position: absolute;
+  text-align: initial;
+  inset: 0;
+  overflow: hidden;
+  opacity: 1;
+  line-height: 1;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  z-index: 2;
+  user-select: text;
+}
+
+.textLayer span,
+.textLayer br {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
+
+/* Text Selection Highlight contrast */
+.textLayer ::selection {
+  background: var(--color-accent);
+  color: transparent;
+  opacity: 0.4;
+}
+
+.textLayer ::-moz-selection {
+  background: var(--color-accent);
+  color: transparent;
+  opacity: 0.4;
+}
+
+/* 3. Thumbnail Card Hover Animations */
+.lumina-thumb-card {
+  position: relative;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background-color: var(--color-surface);
+  transition: transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+  overflow: hidden;
+}
+
+.lumina-thumb-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-md);
+}
+
+.lumina-thumb-card.active {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-accent);
+}
+
+/* 4. Page Placeholder Loading Skeleton */
+.lumina-fixed-skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-surface) 25%,
+    var(--color-surface-hover) 50%,
+    var(--color-surface) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.8s infinite ease-in-out;
+}
+
+@keyframes skeletonShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}

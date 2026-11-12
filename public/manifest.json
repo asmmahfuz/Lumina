@@ -1,0 +1,19 @@
+{
+  "name": "Lumina Reader - Universal Digital Reading Suite",
+  "short_name": "Lumina",
+  "description": "Editorial-grade, 100% local-first universal reader for EPUB, PDF, Comics, MOBI, FB2, and Markdown.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#000000",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "/app-icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["books", "productivity", "utilities"]
+}
