@@ -11,17 +11,23 @@ import {
   ReadingTheme,
 } from '@/types/book';
 import { getPlatformAdapter, isDesktopEnvironment } from '@/services/platform';
+import { useFullscreenController } from './useFullscreenController';
+import { ReaderToolbarProvider } from './ReaderToolbarContext';
 
 interface ReaderContextValue {
   settings: ReaderSettings;
   theme: ReadingTheme;
   typography: ReaderTypography;
   zenMode: boolean;
+  isFullscreen: boolean;
   isDesktop: boolean;
   activeView: 'library' | 'reader' | 'comic' | 'fixed' | 'scaffold' | 'epub-engine';
   setTheme: (theme: ReadingTheme) => void;
   updateTypography: (updates: Partial<ReaderTypography>) => void;
+  updateSettings: (updates: Partial<ReaderSettings>) => void;
   toggleZenMode: () => void;
+  toggleFullscreen: () => void;
+  setFullscreen: (next: boolean) => void;
   setActiveView: (view: 'library' | 'reader' | 'comic' | 'fixed' | 'scaffold' | 'epub-engine') => void;
 }
 
@@ -32,6 +38,7 @@ export const ReaderProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [zenMode, setZenMode] = useState<boolean>(false);
   const [activeView, setActiveView] = useState<'library' | 'reader' | 'comic' | 'fixed' | 'scaffold' | 'epub-engine'>('library');
   const [isDesktop] = useState<boolean>(isDesktopEnvironment());
+  const { isFullscreen, setFullscreen, toggleFullscreen } = useFullscreenController(isDesktop);
 
   // Load initial settings on mount
   useEffect(() => {
@@ -85,6 +92,12 @@ export const ReaderProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     getPlatformAdapter().saveSettings(updated).catch(console.error);
   };
 
+  const updateSettings = (updates: Partial<ReaderSettings>) => {
+    const updated = { ...settings, ...updates };
+    setSettings(updated);
+    getPlatformAdapter().saveSettings(updated).catch(console.error);
+  };
+
   const toggleZenMode = () => {
     setZenMode((prev) => !prev);
   };
@@ -96,15 +109,19 @@ export const ReaderProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         theme: settings.theme,
         typography: settings.typography,
         zenMode,
+        isFullscreen,
         isDesktop,
         activeView,
         setTheme,
         updateTypography,
+        updateSettings,
         toggleZenMode,
+        toggleFullscreen,
+        setFullscreen,
         setActiveView,
       }}
     >
-      {children}
+      <ReaderToolbarProvider>{children}</ReaderToolbarProvider>
     </ReaderContext.Provider>
   );
 };

@@ -1,82 +1,80 @@
 /**
- * Lumina Reader - Comic Floating Navigation Bar
- * Glassmorphic floating control pill with page stepper, reading mode toggle, and page scrubber
+ * Lumina Reader - Minimal Comic Floating Navigation Pill
+ * Displays only `< current / total >` with optional click-to-scrub slider.
  */
 
 import React, { useState } from 'react';
-import { ChevronLeft, ChevronRight, Sliders, BookOpen } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from 'lucide-react';
 import { ComicReadingMode } from '@/types/comic';
+import { useReaderContext } from '@/app/Providers';
 
 interface ComicFloatingNavProps {
   currentPage: number; // 1-based
   totalPages: number;
   readingMode: ComicReadingMode;
-  isSpread: boolean;
   canGoPrev: boolean;
   canGoNext: boolean;
   onPrev: () => void;
   onNext: () => void;
   onGoToPage: (page: number) => void;
-  onToggleSettings?: () => void;
 }
 
 export const ComicFloatingNav: React.FC<ComicFloatingNavProps> = ({
   currentPage,
   totalPages,
   readingMode,
-  isSpread,
   canGoPrev,
   canGoNext,
   onPrev,
   onNext,
   onGoToPage,
-  onToggleSettings,
 }) => {
   const [showScrubber, setShowScrubber] = useState(false);
+  const { settings } = useReaderContext();
+  const isVertical = settings.navPosition === 'right';
 
-  const displayPageStr = isSpread && currentPage < totalPages
-    ? `Pages ${currentPage}–${currentPage + 1} of ${totalPages}`
-    : `Page ${currentPage} of ${totalPages}`;
+  const iconBtnStyle: React.CSSProperties = {
+    width: '20px',
+    height: '20px',
+    padding: 0,
+    borderRadius: 'var(--radius-full)',
+    backgroundColor: 'transparent',
+    border: 'none',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  };
 
-  const progressPercent = totalPages > 0 ? Math.round((currentPage / totalPages) * 100) : 0;
-
-  const modeBadge =
-    readingMode === 'dual-rtl'
-      ? 'RTL Manga'
-      : readingMode === 'dual-ltr'
-      ? 'LTR Spread'
-      : readingMode === 'webtoon'
-      ? 'Webtoon'
-      : 'Single Page';
+  const PrevIcon = isVertical ? ChevronUp : ChevronLeft;
+  const NextIcon = isVertical ? ChevronDown : ChevronRight;
 
   return (
     <div
       style={{
         position: 'absolute',
-        bottom: '16px',
-        left: '50%',
-        transform: 'translateX(-50%)',
+        ...(isVertical
+          ? { right: '10px', top: '50%', transform: 'translateY(-50%)', flexDirection: 'row-reverse' }
+          : { bottom: '10px', left: '50%', transform: 'translateX(-50%)', flexDirection: 'column' }),
         zIndex: 'var(--z-toolbar)',
         display: 'flex',
-        flexDirection: 'column',
         alignItems: 'center',
-        gap: '8px',
+        gap: '6px',
         pointerEvents: 'auto',
       }}
     >
-      {/* Optional Page Scrubber Bar */}
       {showScrubber && (
         <div
-          className="glass-panel animate-slide-up"
+          className="glass-panel"
           style={{
-            padding: '6px 14px',
+            padding: '4px 10px',
             borderRadius: 'var(--radius-full)',
             display: 'flex',
             alignItems: 'center',
-            gap: '10px',
+            gap: '8px',
             boxShadow: 'var(--shadow-lg)',
             border: '1px solid var(--color-border)',
-            fontSize: '11px',
+            fontSize: '10px',
             color: 'var(--color-text-secondary)',
           }}
         >
@@ -87,122 +85,79 @@ export const ComicFloatingNav: React.FC<ComicFloatingNavProps> = ({
             max={totalPages}
             value={currentPage}
             onChange={(e) => onGoToPage(Number(e.target.value))}
-            style={{ width: '180px', accentColor: 'var(--color-accent)', cursor: 'pointer' }}
+            style={{ width: '150px', accentColor: 'var(--color-accent)', cursor: 'pointer' }}
           />
           <span>{totalPages}</span>
         </div>
       )}
 
-      {/* Main Glassmorphic Control Pill */}
-      <div
+      <nav
         className="glass-panel"
         style={{
           display: 'flex',
+          flexDirection: isVertical ? 'column' : 'row',
           alignItems: 'center',
-          gap: '6px',
-          padding: '4px 8px',
+          gap: '3px',
+          padding: isVertical ? '4px 3px' : '2px 6px',
           borderRadius: 'var(--radius-full)',
           boxShadow: 'var(--shadow-lg)',
           border: '1px solid var(--color-border)',
+          userSelect: 'none',
         }}
       >
-        {/* Prev Page Button */}
         <button
           onClick={onPrev}
           disabled={!canGoPrev}
-          title={readingMode === 'dual-rtl' ? 'Next Manga Spread (Left Arrow)' : 'Previous Page (Left Arrow)'}
+          title={readingMode === 'dual-rtl' ? 'Next Manga Spread' : 'Previous Page'}
           style={{
-            height: '28px',
-            padding: '0 8px',
+            ...iconBtnStyle,
+            color: canGoPrev ? 'var(--color-text-primary)' : 'var(--color-text-muted)',
+            cursor: canGoPrev ? 'pointer' : 'default',
+          }}
+        >
+          <PrevIcon size={13} />
+        </button>
+
+        <button
+          onClick={() => setShowScrubber((prev) => !prev)}
+          title="Click to toggle page scrubber"
+          style={{
+            height: isVertical ? 'auto' : '20px',
+            padding: isVertical ? '3px 2px' : '0 6px',
             borderRadius: 'var(--radius-full)',
             backgroundColor: 'transparent',
             border: 'none',
-            color: canGoPrev ? 'var(--color-text-primary)' : 'var(--color-text-muted)',
-            cursor: canGoPrev ? 'pointer' : 'default',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '2px',
-            fontSize: '11px',
-            fontWeight: 500,
-          }}
-        >
-          <ChevronLeft size={14} />
-          <span>Prev</span>
-        </button>
-
-        {/* Central Page & Progress Badge */}
-        <div
-          onClick={() => setShowScrubber((prev) => !prev)}
-          title="Click to toggle rapid page scrubber"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            padding: '3px 10px',
-            borderRadius: 'var(--radius-full)',
-            backgroundColor: 'var(--color-surface)',
-            border: '1px solid var(--color-border)',
-            fontSize: '11px',
+            fontSize: '10.5px',
             fontWeight: 600,
             color: 'var(--color-text-primary)',
             cursor: 'pointer',
+            display: 'flex',
+            flexDirection: isVertical ? 'column' : 'row',
+            alignItems: 'center',
+            gap: isVertical ? '0px' : '3px',
+            lineHeight: 1.15,
           }}
         >
-          <BookOpen size={12} style={{ color: 'var(--color-accent)' }} />
-          <span>{displayPageStr}</span>
-          <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>•</span>
-          <span style={{ color: 'var(--color-accent)' }}>{progressPercent}%</span>
-          <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>•</span>
-          <span style={{ fontSize: '10px', color: 'var(--color-text-secondary)' }}>{modeBadge}</span>
-        </div>
+          <span>{currentPage}</span>
+          {!isVertical && <span style={{ color: 'var(--color-text-muted)' }}>/</span>}
+          <span style={{ color: 'var(--color-text-muted)', fontSize: isVertical ? '9px' : '10.5px' }}>
+            {totalPages}
+          </span>
+        </button>
 
-        {/* Next Page Button */}
         <button
           onClick={onNext}
           disabled={!canGoNext}
-          title={readingMode === 'dual-rtl' ? 'Previous Manga Spread (Right Arrow)' : 'Next Page (Right Arrow)'}
+          title={readingMode === 'dual-rtl' ? 'Previous Manga Spread' : 'Next Page'}
           style={{
-            height: '28px',
-            padding: '0 8px',
-            borderRadius: 'var(--radius-full)',
-            backgroundColor: 'transparent',
-            border: 'none',
+            ...iconBtnStyle,
             color: canGoNext ? 'var(--color-text-primary)' : 'var(--color-text-muted)',
             cursor: canGoNext ? 'pointer' : 'default',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '2px',
-            fontSize: '11px',
-            fontWeight: 500,
           }}
         >
-          <span>Next</span>
-          <ChevronRight size={14} />
+          <NextIcon size={13} />
         </button>
-
-        {/* Comic Settings Button */}
-        {onToggleSettings && (
-          <button
-            onClick={onToggleSettings}
-            title="Comic & Manga Settings (Spread, RTL, Webtoon, Zoom)"
-            style={{
-              height: '28px',
-              width: '28px',
-              padding: 0,
-              borderRadius: 'var(--radius-full)',
-              backgroundColor: 'var(--color-surface)',
-              border: '1px solid var(--color-border)',
-              color: 'var(--color-text-secondary)',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Sliders size={13} />
-          </button>
-        )}
-      </div>
+      </nav>
     </div>
   );
 };

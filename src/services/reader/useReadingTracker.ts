@@ -1,14 +1,16 @@
 /**
  * Lumina Reader - Active Reading Session & Stats Tracker Hook
- * Tracks active reading time with idle detection and calculates chapter time remaining.
+ * Tracks reading time silently in memory without triggering 5s root React re-renders,
+ * flushing to localStorage on book switch, idle pause, or tab close.
  */
 
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { StatsEngine } from './statsEngine';
 import { ReadingStats, ChapterReadingEstimate } from '@/types/stats';
 
-const IDLE_TIMEOUT_MS = 45000; // 45 seconds idle pause
-const TICK_INTERVAL_MS = 5000; // record every 5s
+const IDLE_TIMEOUT_MS = 45000;
+const FLUSH_INTERVAL_MS = 30000;
+const TICK_MS = 5000;
 
 interface UseReadingTrackerProps {
   bookId?: string | null;
@@ -25,20 +27,24 @@ export function useReadingTracker({
 }: UseReadingTrackerProps) {
   const [stats, setStats] = useState<ReadingStats>(() => StatsEngine.loadStats());
   const lastActiveRef = useRef<number>(Date.now());
-  const isUserActiveRef = useRef<boolean>(true);
+  const pendingSecondsRef = useRef<number>(0);
+  const wpmRef = useRef<number>(stats.targetWpm);
+  wpmRef.current = stats.targetWpm;
 
-  // 1. Calculate word count of current chapter
+  const flushPendingActivity = useCallback((targetBookId?: string | null) => {
+    const secs = pendingSecondsRef.current;
+    if (secs <= 0 || !targetBookId) return;
+    pendingSecondsRef.current = 0;
+    const wordsDelta = Math.round((wpmRef.current / 60) * secs);
+    StatsEngine.recordActivity(targetBookId, secs, wordsDelta);
+  }, []);
+
   const wordCount = useMemo(() => {
-    if (chapterContent) {
-      return StatsEngine.calculateWordCount(chapterContent);
-    }
-    return 0;
+    return chapterContent ? StatsEngine.calculateWordCount(chapterContent) : 0;
   }, [chapterContent]);
 
-  // 2. Compute chapter reading estimate
   const chapterEstimate: ChapterReadingEstimate = useMemo(() => {
     if (pagesInfo && !chapterContent) {
-      // For Comics & PDF: estimate based on remaining pages (~1 min per page)
       const remainingPages = Math.max(0, pagesInfo.total - pagesInfo.current);
       const estimatedMinutes = Math.ceil(remainingPages * 1.0);
       return {
@@ -50,18 +56,14 @@ export function useReadingTracker({
     return StatsEngine.estimateReadingTime(wordCount, stats.targetWpm);
   }, [wordCount, stats.targetWpm, pagesInfo, chapterContent]);
 
-  // 3. User activity listener (idle detection)
   useEffect(() => {
     const handleActivity = () => {
       lastActiveRef.current = Date.now();
-      isUserActiveRef.current = true;
     };
-
     window.addEventListener('mousemove', handleActivity, { passive: true });
     window.addEventListener('keydown', handleActivity, { passive: true });
     window.addEventListener('scroll', handleActivity, { passive: true });
     window.addEventListener('click', handleActivity, { passive: true });
-
     return () => {
       window.removeEventListener('mousemove', handleActivity);
       window.removeEventListener('keydown', handleActivity);
@@ -70,28 +72,36 @@ export function useReadingTracker({
     };
   }, []);
 
-  // 4. Session timer tick
+  // Silent accumulator: never calls setState in background loop
   useEffect(() => {
     if (!isReadingActive || !bookId) return;
 
-    const interval = setInterval(() => {
-      const now = Date.now();
-      const idleElapsed = now - lastActiveRef.current;
-
-      if (idleElapsed < IDLE_TIMEOUT_MS) {
-        // Active reading: record 5 seconds
-        const secondsDelta = Math.round(TICK_INTERVAL_MS / 1000);
-        // Estimate words read in this 5-second slice
-        const wordsDelta = Math.round((stats.targetWpm / 60) * secondsDelta);
-        const updated = StatsEngine.recordActivity(bookId, secondsDelta, wordsDelta);
-        setStats(updated);
-      } else {
-        isUserActiveRef.current = false;
+    const sampleTimer = window.setInterval(() => {
+      if (Date.now() - lastActiveRef.current < IDLE_TIMEOUT_MS) {
+        pendingSecondsRef.current += Math.round(TICK_MS / 1000);
       }
-    }, TICK_INTERVAL_MS);
+    }, TICK_MS);
 
-    return () => clearInterval(interval);
-  }, [isReadingActive, bookId, stats.targetWpm]);
+    const flushTimer = window.setInterval(() => {
+      flushPendingActivity(bookId);
+    }, FLUSH_INTERVAL_MS);
+
+    const onVisibilityOrUnload = () => {
+      if (document.visibilityState === 'hidden') {
+        flushPendingActivity(bookId);
+      }
+    };
+    window.addEventListener('beforeunload', onVisibilityOrUnload);
+    document.addEventListener('visibilitychange', onVisibilityOrUnload);
+
+    return () => {
+      window.clearInterval(sampleTimer);
+      window.clearInterval(flushTimer);
+      window.removeEventListener('beforeunload', onVisibilityOrUnload);
+      document.removeEventListener('visibilitychange', onVisibilityOrUnload);
+      flushPendingActivity(bookId);
+    };
+  }, [isReadingActive, bookId, flushPendingActivity]);
 
   const updateWpm = useCallback((wpm: number) => {
     const updated = StatsEngine.updateTargetWpm(wpm);
@@ -99,8 +109,9 @@ export function useReadingTracker({
   }, []);
 
   const refreshStats = useCallback(() => {
+    flushPendingActivity(bookId);
     setStats(StatsEngine.loadStats());
-  }, []);
+  }, [bookId, flushPendingActivity]);
 
   return {
     stats,

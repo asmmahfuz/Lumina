@@ -7,6 +7,7 @@
 import React, { useState, useEffect } from 'react';
 import { useReaderContext } from './Providers';
 import { SingleBarHeader } from '@/components/common/SingleBarHeader';
+import { FullscreenExitOverlay } from '@/components/common/FullscreenExitOverlay';
 import { TypographyModal } from '@/components/settings/TypographyModal';
 import { ReadingStatsModal } from '@/components/stats/ReadingStatsModal';
 import { AppMainContent } from './AppMainContent';
@@ -22,12 +23,12 @@ import { localDb } from '@/services/storage/indexedDb';
 import { downloadArrayBuffer } from '@/services/storage/fileExport';
 
 export const App: React.FC = () => {
-  const { activeView, setActiveView } = useReaderContext();
+  const { activeView, setActiveView, isFullscreen, setFullscreen } = useReaderContext();
   const [typographyOpen, setTypographyOpen] = useState(false);
   const [lastOpenedBook, setLastOpenedBook] = useState<string | undefined>();
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [sidebarOpen, setSidebarOpen] = useState<boolean>(true);
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('toc');
   const [statsModalOpen, setStatsModalOpen] = useState<boolean>(false);
 
@@ -125,16 +126,10 @@ export const App: React.FC = () => {
     activeView === 'fixed' && fixedDoc ? { current: fixedPageNumber, total: fixedDoc.pages.length } : undefined;
 
   const handleSaveFile = async () => {
-    if (!activeBookId) {
-      showToast('No active document open to save');
-      return;
-    }
+    if (!activeBookId) return showToast('No active document open to save');
     try {
       const buffer = await localDb.getBookBlob(activeBookId);
-      if (!buffer) {
-        showToast('Document binary not found in storage');
-        return;
-      }
+      if (!buffer) return showToast('Document binary not found in storage');
       const book = await localDb.getBook(activeBookId);
       const ext = book?.format || 'epub';
       const cleanTitle = (activeTitle || 'document').replace(/[\\/:*?"<>|]/g, '_');
@@ -146,16 +141,10 @@ export const App: React.FC = () => {
   };
 
   const handleSaveAsFile = async () => {
-    if (!activeBookId) {
-      showToast('No active document open to save as');
-      return;
-    }
+    if (!activeBookId) return showToast('No active document open to save as');
     try {
       const buffer = await localDb.getBookBlob(activeBookId);
-      if (!buffer) {
-        showToast('Document binary not found in storage');
-        return;
-      }
+      if (!buffer) return showToast('Document binary not found in storage');
       const book = await localDb.getBook(activeBookId);
       const ext = book?.format || 'epub';
       const cleanTitle = (activeTitle || 'document').replace(/[\\/:*?"<>|]/g, '_');
@@ -210,11 +199,16 @@ export const App: React.FC = () => {
     (activeView === 'reader' || activeView === 'comic' || activeView === 'fixed') &&
     Boolean(activeTitle);
 
-  const { stats, updateWpm } = useReadingTracker({
+  const { stats, updateWpm, refreshStats } = useReadingTracker({
     bookId: activeBookId,
     isReadingActive,
     pagesInfo: activeChapterInfo,
   });
+
+  const handleOpenStats = () => {
+    refreshStats();
+    setStatsModalOpen(true);
+  };
 
   const handlePrevChapter = () => {
     if (activeView === 'reader' && readingSpineIndex > 0) setReadingSpineIndex(readingSpineIndex - 1);
@@ -233,34 +227,44 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div style={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column' }}>
-      {/* 1. Strict Single-Bar Chrome Header (<= 32px, ZERO secondary horizontal toolbars) */}
-      <SingleBarHeader
-        onOpenTypography={() => setTypographyOpen(true)}
-        onBookOpened={handleBookOpened}
-        onSaveFile={handleSaveFile}
-        onSaveAsFile={handleSaveAsFile}
-        readingBookTitle={activeTitle}
-        readingChapterInfo={activeChapterInfo}
-        onPrevChapter={handlePrevChapter}
-        onNextChapter={handleNextChapter}
-        sidebarOpen={sidebarOpen}
-        onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-        onQuickBookmark={handleToggleQuickBookmark}
-        isBookmarked={isCurrentBookmarked}
-        onOpenSearch={() => {
-          setSidebarTab('search');
-          setSidebarOpen(true);
-        }}
-        onOpenStats={() => setStatsModalOpen(true)}
+    <div style={{ width: '100vw', height: '100vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      {/* 1. Strict Single-Bar Chrome Header (always shown except in explicit fullscreen) */}
+      {!isFullscreen && (
+        <SingleBarHeader
+          onOpenTypography={() => setTypographyOpen(true)}
+          onBookOpened={handleBookOpened}
+          onSaveFile={handleSaveFile}
+          onSaveAsFile={handleSaveAsFile}
+          readingBookTitle={activeTitle}
+          readingChapterInfo={activeChapterInfo}
+          onPrevChapter={handlePrevChapter}
+          onNextChapter={handleNextChapter}
+          sidebarOpen={sidebarOpen}
+          onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          onQuickBookmark={handleToggleQuickBookmark}
+          isBookmarked={isCurrentBookmarked}
+          onOpenSearch={() => {
+            setSidebarTab('search');
+            setSidebarOpen(true);
+          }}
+          onOpenStats={handleOpenStats}
+          stats={stats}
+        />
+      )}
+
+      <FullscreenExitOverlay
+        isFullscreen={isFullscreen}
+        onExitFullscreen={() => setFullscreen(false)}
+        title={activeTitle || 'Lumina Reader'}
       />
 
       {/* 2. Main Viewport Container */}
       <AppMainContent
         activeView={activeView}
         fixedDoc={fixedDoc}
+        fixedBookId={fixedBookId}
         fixedPageNumber={fixedPageNumber}
         readingPdfHandle={readingPdfHandle}
         readingDjvuHandle={readingDjvuHandle}
@@ -297,7 +301,7 @@ export const App: React.FC = () => {
         searchQuery={searchQuery}
         lastOpenedBook={lastOpenedBook}
         showToast={showToast}
-        onOpenStats={() => setStatsModalOpen(true)}
+        onOpenStats={handleOpenStats}
       />
 
       {/* 3. Typography & Themes Settings Popover */}

@@ -55,11 +55,12 @@ export interface ParsedFixedDocument {
   metadata: FixedDocumentMetadata;
   pages: FixedPageInfo[];
   outline: FixedDocumentOutline[];
+  hasTextLayer?: boolean;
 }
 
 export const DEFAULT_FIXED_SETTINGS: FixedSettings = {
   readingMode: 'continuous',
-  fitMode: 'fit-width',
+  fitMode: 'original',
   scale: 1.0,
   showTextLayer: true,
   continuousGap: 16,

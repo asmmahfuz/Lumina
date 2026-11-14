@@ -6,7 +6,7 @@
 import React from 'react';
 import { useReaderContext } from '@/app/Providers';
 import { FontFamilyChoice, ReadingTheme } from '@/types/book';
-import { X, Check, AlignJustify, AlignLeft, Columns, Book, BookOpen, ScrollText } from 'lucide-react';
+import { X, Check, AlignJustify, AlignLeft, Columns, Book, BookOpen, ScrollText, PanelBottom, PanelRight } from 'lucide-react';
 
 interface TypographyModalProps {
   isOpen: boolean;
@@ -14,7 +14,8 @@ interface TypographyModalProps {
 }
 
 export const TypographyModal: React.FC<TypographyModalProps> = ({ isOpen, onClose }) => {
-  const { theme, setTheme, typography, updateTypography } = useReaderContext();
+  const { theme, setTheme, typography, updateTypography, settings, updateSettings } = useReaderContext();
+  const navPosition = settings.navPosition || 'bottom';
 
   if (!isOpen) return null;
 
@@ -279,6 +280,48 @@ export const TypographyModal: React.FC<TypographyModalProps> = ({ isOpen, onClos
               {typography.twoPageSpread ? <Columns size={12} /> : <Book size={12} />}
               <span>{typography.twoPageSpread ? '2-Page Spread' : 'Single Page'}</span>
             </button>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '6px', borderTop: '1px solid var(--color-border)' }}>
+            <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', fontWeight: 500 }}>Control Bar Position</span>
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <button
+                onClick={() => updateSettings({ navPosition: 'bottom' })}
+                style={{
+                  padding: '5px 10px',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--color-border)',
+                  backgroundColor: navPosition === 'bottom' ? 'var(--color-accent-subtle)' : 'var(--color-surface)',
+                  color: navPosition === 'bottom' ? 'var(--color-accent)' : 'inherit',
+                  fontSize: '11px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  cursor: 'pointer',
+                }}
+              >
+                <PanelBottom size={12} />
+                <span>Bottom</span>
+              </button>
+              <button
+                onClick={() => updateSettings({ navPosition: 'right' })}
+                style={{
+                  padding: '5px 10px',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--color-border)',
+                  backgroundColor: navPosition === 'right' ? 'var(--color-accent-subtle)' : 'var(--color-surface)',
+                  color: navPosition === 'right' ? 'var(--color-accent)' : 'inherit',
+                  fontSize: '11px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  cursor: 'pointer',
+                }}
+              >
+                <PanelRight size={12} />
+                <span>Right (Vertical)</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>

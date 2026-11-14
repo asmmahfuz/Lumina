@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { LayoutGrid, List, FolderOpen, ArrowUpDown, Flame } from 'lucide-react';
+import { LayoutGrid, List, FolderOpen, ArrowUpDown, Flame, Trash2 } from 'lucide-react';
 
 export type LibraryCategoryFilter = 'all' | 'epub' | 'comic' | 'pdf' | 'text';
 export type LibrarySortOption = 'recent' | 'title-asc' | 'title-desc' | 'progress' | 'size';
@@ -20,6 +20,7 @@ interface LibraryToolbarProps {
   filteredCount: number;
   onOpenFile: () => void;
   onOpenStats?: () => void;
+  onClearHistory?: () => void;
 }
 
 export const LibraryToolbar: React.FC<LibraryToolbarProps> = ({
@@ -33,6 +34,7 @@ export const LibraryToolbar: React.FC<LibraryToolbarProps> = ({
   filteredCount,
   onOpenFile,
   onOpenStats,
+  onClearHistory,
 }) => {
   const filterTabs: { id: LibraryCategoryFilter; label: string }[] = [
     { id: 'all', label: 'All Formats' },
@@ -210,6 +212,30 @@ export const LibraryToolbar: React.FC<LibraryToolbarProps> = ({
           >
             <Flame size={12} style={{ color: '#f97316' }} />
             <span>Insights</span>
+          </button>
+        )}
+
+        {/* Clear History button */}
+        {onClearHistory && totalCount > 0 && (
+          <button
+            onClick={onClearHistory}
+            title="Clear all reading history"
+            style={{
+              height: '26px',
+              padding: '0 8px',
+              fontSize: '11px',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--color-border)',
+              backgroundColor: 'var(--color-surface)',
+              color: 'var(--color-danger)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              cursor: 'pointer',
+            }}
+          >
+            <Trash2 size={11} style={{ color: 'var(--color-danger)' }} />
+            <span>Clear History</span>
           </button>
         )}
 

@@ -13,6 +13,7 @@ import { LibraryBookCard } from './LibraryBookCard';
 import { LibraryListView } from './LibraryListView';
 import { BookInfoModal } from './BookInfoModal';
 import { DeleteConfirmModal } from './DeleteConfirmModal';
+import { ClearHistoryModal } from './ClearHistoryModal';
 import { LibraryEmptyState } from './LibraryEmptyState';
 
 interface LibraryPreviewProps {
@@ -41,6 +42,7 @@ export const LibraryPreview: React.FC<LibraryPreviewProps> = ({
   // Modals state
   const [infoModalBook, setInfoModalBook] = useState<BookMetadata | null>(null);
   const [deleteModalBook, setDeleteModalBook] = useState<BookMetadata | null>(null);
+  const [clearConfirmOpen, setClearConfirmOpen] = useState<boolean>(false);
 
   const loadCatalog = async () => {
     try {
@@ -99,7 +101,11 @@ export const LibraryPreview: React.FC<LibraryPreviewProps> = ({
     for (const file of files) {
       try {
         const buffer = await file.arrayBuffer();
-        await UniversalBookImporter.importFile({ name: file.name, data: buffer });
+        await UniversalBookImporter.importFile({
+          name: file.name,
+          data: buffer,
+          filePath: file.webkitRelativePath || file.name,
+        });
         importedCount++;
       } catch (err) {
         console.error(`Failed to import ${file.name}:`, err);
@@ -115,13 +121,30 @@ export const LibraryPreview: React.FC<LibraryPreviewProps> = ({
   // Handle Book Deletion
   const handleDeleteConfirm = async (book: BookMetadata) => {
     try {
+      setDeleteModalBook(null);
+      setBooks((prev) => prev.filter((b) => b.id !== book.id));
       const adapter = getPlatformAdapter();
       await adapter.deleteBook(book.id);
-      setDeleteModalBook(null);
       onNotify?.(`Deleted "${book.title}" from library`);
       await loadCatalog();
     } catch (err) {
       onNotify?.(`Failed to delete book: ${String(err)}`);
+      await loadCatalog();
+    }
+  };
+
+  // Handle Clear Entire History
+  const handleClearAllConfirm = async () => {
+    try {
+      setClearConfirmOpen(false);
+      setBooks([]);
+      const adapter = getPlatformAdapter();
+      await adapter.clearAllBooks();
+      onNotify?.('All reading history has been cleared');
+      await loadCatalog();
+    } catch (err) {
+      onNotify?.(`Failed to clear history: ${String(err)}`);
+      await loadCatalog();
     }
   };
 
@@ -135,6 +158,8 @@ export const LibraryPreview: React.FC<LibraryPreviewProps> = ({
       result = result.filter(
         (b) =>
           b.title.toLowerCase().includes(q) ||
+          b.fileName?.toLowerCase().includes(q) ||
+          b.filePath?.toLowerCase().includes(q) ||
           b.creator?.toLowerCase().includes(q) ||
           b.description?.toLowerCase().includes(q) ||
           b.format.toLowerCase().includes(q)
@@ -201,6 +226,7 @@ export const LibraryPreview: React.FC<LibraryPreviewProps> = ({
             filteredCount={filteredAndSortedBooks.length}
             onOpenFile={onOpenFile || (() => {})}
             onOpenStats={onOpenStats}
+            onClearHistory={() => setClearConfirmOpen(true)}
           />
         )}
 
@@ -218,8 +244,8 @@ export const LibraryPreview: React.FC<LibraryPreviewProps> = ({
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
-              gap: '16px',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+              gap: '14px',
               animation: 'fadeIn 150ms ease-out',
             }}
           >
@@ -255,6 +281,13 @@ export const LibraryPreview: React.FC<LibraryPreviewProps> = ({
           book={deleteModalBook}
           onCancel={() => setDeleteModalBook(null)}
           onConfirm={handleDeleteConfirm}
+        />
+
+        <ClearHistoryModal
+          isOpen={clearConfirmOpen}
+          onCancel={() => setClearConfirmOpen(false)}
+          onConfirm={handleClearAllConfirm}
+          bookCount={books.length}
         />
       </div>
     </LibraryDropzone>

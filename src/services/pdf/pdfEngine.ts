@@ -1,19 +1,19 @@
 /**
- * Lumina Reader - High-Performance PDF Engine
- * Virtualized canvas rendering, text selection layer, outlines, and Dublin Core metadata extraction
+ * Lumina Reader - Low-RAM Streaming PDF Engine
+ * Supports disk range streaming, instant page-1 first paint, reusable canvas thumbnails,
+ * auto-detected text layer, and strict GPU/memory cleanup.
  */
 
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
-import {
-  FixedDocumentMetadata,
-  FixedDocumentOutline,
-  FixedPageInfo,
-  ParsedFixedDocument,
-} from '@/types/pdf';
+import { FixedPageInfo, ParsedFixedDocument } from '@/types/pdf';
+import { createTauriPdfRangeTransport, PDF_RANGE_CHUNK_SIZE } from './TauriPdfRangeTransport';
+import { initializeFixedPdfDocument } from './pdfDocumentInit';
 
-// Initialize PDF.js worker securely with bundled Vite asset URL
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+
+const MAX_THUMBNAIL_CACHE = 32;
+const MAX_DPR = 1.5;
 
 export interface RenderPageResult {
   width: number;
@@ -25,8 +25,9 @@ export interface RenderPageResult {
 
 export class PdfDocumentHandle {
   private pdfDoc: pdfjsLib.PDFDocumentProxy;
-  private thumbnailCache = new Map<number, string>();
+  private thumbnailCache = new Map<number, string>(); // Bounded LRU of ObjectURLs
   private activeRenderTasks = new Map<number, pdfjsLib.RenderTask>();
+  private disposed = false;
 
   constructor(pdfDoc: pdfjsLib.PDFDocumentProxy) {
     this.pdfDoc = pdfDoc;
@@ -36,32 +37,53 @@ export class PdfDocumentHandle {
     return this.pdfDoc.numPages;
   }
 
-  /**
-   * High-DPI hardware-accelerated canvas page rasterization
-   */
+  public getCachedThumbnail(pageNumber: number): string | undefined {
+    const url = this.thumbnailCache.get(pageNumber);
+    if (url) {
+      this.thumbnailCache.delete(pageNumber);
+      this.thumbnailCache.set(pageNumber, url);
+    }
+    return url;
+  }
+
+  private putThumbnail(pageNumber: number, url: string): void {
+    const existing = this.thumbnailCache.get(pageNumber);
+    if (existing && existing !== url) {
+      try { URL.revokeObjectURL(existing); } catch { /* ignore */ }
+      this.thumbnailCache.delete(pageNumber);
+    }
+    this.thumbnailCache.set(pageNumber, url);
+
+    if (this.thumbnailCache.size > MAX_THUMBNAIL_CACHE) {
+      const oldestKey = this.thumbnailCache.keys().next().value;
+      if (oldestKey !== undefined) {
+        const oldUrl = this.thumbnailCache.get(oldestKey);
+        this.thumbnailCache.delete(oldestKey);
+        if (oldUrl) {
+          try { URL.revokeObjectURL(oldUrl); } catch { /* ignore */ }
+        }
+      }
+    }
+  }
+
   public async renderPageToCanvas(
     pageNumber: number,
     canvas: HTMLCanvasElement,
     scale: number,
     abortSignal?: AbortSignal
   ): Promise<RenderPageResult> {
-    // Cancel any previous in-flight render for this page number
     const existingTask = this.activeRenderTasks.get(pageNumber);
     if (existingTask) {
-      try {
-        existingTask.cancel();
-      } catch {
-        // Ignore cancellation error
-      }
+      try { existingTask.cancel(); } catch { /* ignore */ }
       this.activeRenderTasks.delete(pageNumber);
     }
 
-    if (abortSignal?.aborted) {
+    if (abortSignal?.aborted || this.disposed) {
       return { width: 0, height: 0, cssWidth: 0, cssHeight: 0, cancelled: true };
     }
 
     const page = await this.pdfDoc.getPage(pageNumber);
-    const dpr = Math.max(window.devicePixelRatio || 1, 1);
+    const dpr = Math.min(Math.max(window.devicePixelRatio || 1, 1), MAX_DPR);
     const viewport = page.getViewport({ scale: scale * dpr });
 
     canvas.width = Math.floor(viewport.width);
@@ -75,43 +97,29 @@ export class PdfDocumentHandle {
     const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) throw new Error('Could not obtain 2D canvas context');
 
-    // Solid white background for clear contrast under dark themes
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    const renderTask = page.render({
-      canvasContext: ctx,
-      viewport,
-    });
-
+    const renderTask = page.render({ canvasContext: ctx, viewport });
     this.activeRenderTasks.set(pageNumber, renderTask);
 
     try {
       await renderTask.promise;
       this.activeRenderTasks.delete(pageNumber);
-      return {
-        width: canvas.width,
-        height: canvas.height,
-        cssWidth,
-        cssHeight,
-      };
+      return { width: canvas.width, height: canvas.height, cssWidth, cssHeight };
     } catch (err: unknown) {
       this.activeRenderTasks.delete(pageNumber);
       if (err && typeof err === 'object' && 'name' in err && (err as { name: string }).name === 'RenderingCancelledException') {
         return { width: 0, height: 0, cssWidth, cssHeight, cancelled: true };
       }
       throw err;
+    } finally {
+      try { page.cleanup(); } catch { /* ignore */ }
     }
   }
 
-  /**
-   * Synchronized transparent text selection layer over the canvas
-   */
-  public async renderPageTextLayer(
-    pageNumber: number,
-    container: HTMLElement,
-    scale: number
-  ): Promise<void> {
+  public async renderPageTextLayer(pageNumber: number, container: HTMLElement, scale: number): Promise<void> {
+    if (this.disposed) return;
     container.innerHTML = '';
     const page = await this.pdfDoc.getPage(pageNumber);
     const viewport = page.getViewport({ scale });
@@ -125,17 +133,48 @@ export class PdfDocumentHandle {
       container,
       viewport,
     });
-
     await textLayer.render();
+    try { page.cleanup(); } catch { /* ignore */ }
   }
 
   /**
-   * Fast off-screen page thumbnail generation
+   * Reuses an already-painted main canvas to populate the sidebar/cover thumbnail cache without re-decoding PDF.
    */
-  public async getPageThumbnail(pageNumber: number, maxWidth = 180): Promise<string> {
-    if (this.thumbnailCache.has(pageNumber)) {
-      return this.thumbnailCache.get(pageNumber)!;
-    }
+  public async captureThumbnailFromCanvas(
+    pageNumber: number,
+    sourceCanvas: HTMLCanvasElement,
+    maxWidth = 140
+  ): Promise<{ url: string; blob: Blob } | null> {
+    if (this.disposed || sourceCanvas.width === 0 || sourceCanvas.height === 0) return null;
+
+    const existing = this.getCachedThumbnail(pageNumber);
+    if (existing && pageNumber !== 1) return { url: existing, blob: new Blob() };
+
+    const ratio = sourceCanvas.height / sourceCanvas.width;
+    const w = Math.min(maxWidth, sourceCanvas.width);
+    const h = Math.max(1, Math.round(w * ratio));
+
+    const offscreen = document.createElement('canvas');
+    offscreen.width = w;
+    offscreen.height = h;
+    const ctx = offscreen.getContext('2d', { alpha: false });
+    if (!ctx) return null;
+
+    ctx.drawImage(sourceCanvas, 0, 0, w, h);
+    const blob = await new Promise<Blob | null>((resolve) => offscreen.toBlob(resolve, 'image/jpeg', 0.72));
+    offscreen.width = 0;
+    offscreen.height = 0;
+    if (!blob || this.disposed) return null;
+
+    const url = existing || URL.createObjectURL(blob);
+    if (!existing) this.putThumbnail(pageNumber, url);
+    return { url, blob };
+  }
+
+  public async getPageThumbnail(pageNumber: number, maxWidth = 140): Promise<string> {
+    const cached = this.getCachedThumbnail(pageNumber);
+    if (cached) return cached;
+    if (this.disposed) return '';
 
     const page = await this.pdfDoc.getPage(pageNumber);
     const unscaledViewport = page.getViewport({ scale: 1.0 });
@@ -143,180 +182,123 @@ export class PdfDocumentHandle {
     const viewport = page.getViewport({ scale });
 
     const canvas = document.createElement('canvas');
-    canvas.width = Math.floor(viewport.width);
-    canvas.height = Math.floor(viewport.height);
-    const ctx = canvas.getContext('2d');
+    canvas.width = Math.max(1, Math.floor(viewport.width));
+    canvas.height = Math.max(1, Math.floor(viewport.height));
+    const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) return '';
 
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    await page.render({ canvasContext: ctx, viewport }).promise;
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-    this.thumbnailCache.set(pageNumber, dataUrl);
-    return dataUrl;
+    try {
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.72));
+      if (!blob || this.disposed) return '';
+      const url = URL.createObjectURL(blob);
+      this.putThumbnail(pageNumber, url);
+      return url;
+    } finally {
+      canvas.width = 0;
+      canvas.height = 0;
+      try { page.cleanup(); } catch { /* ignore */ }
+    }
   }
 
   /**
-   * Cleanup resources and dispose in-memory caches
+   * Lazily scans mixed page sizes during idle time without blocking initial render.
    */
-  public destroy(): void {
-    for (const task of this.activeRenderTasks.values()) {
+  public async refinePageDimensionsInBackground(
+    pages: FixedPageInfo[],
+    onComplete?: (sizes: Array<{ w: number; h: number }>) => void
+  ): Promise<void> {
+    const total = pages.length;
+    const batchSize = 8;
+    for (let i = 1; i <= total; i++) {
+      if (this.disposed) return;
       try {
-        task.cancel();
+        const page = await this.pdfDoc.getPage(i);
+        const vp = page.getViewport({ scale: 1.0 });
+        pages[i - 1] = {
+          pageNumber: i,
+          width: Math.round(vp.width),
+          height: Math.round(vp.height),
+          aspectRatio: vp.width / vp.height,
+          rotation: vp.rotation,
+        };
+        page.cleanup();
       } catch {
-        // Ignore
+        // Keep seeded dimension
+      }
+      if (i % batchSize === 0) {
+        await new Promise((r) => setTimeout(r, 16));
       }
     }
+    if (!this.disposed && onComplete) {
+      onComplete(pages.map((p) => ({ w: p.width, h: p.height })));
+    }
+  }
+
+  public destroy(): void {
+    this.disposed = true;
+    for (const task of this.activeRenderTasks.values()) {
+      try { task.cancel(); } catch { /* ignore */ }
+    }
     this.activeRenderTasks.clear();
+    for (const url of this.thumbnailCache.values()) {
+      try { URL.revokeObjectURL(url); } catch { /* ignore */ }
+    }
     this.thumbnailCache.clear();
-    this.pdfDoc.destroy();
+    try { this.pdfDoc.destroy(); } catch { /* ignore */ }
   }
 }
 
 export class PdfEngine {
-  public static async parsePdf(
-    data: ArrayBuffer | Uint8Array,
-    fileName: string
+  public static async openFromPath(
+    filePath: string,
+    fileName: string,
+    initialPage = 1,
+    cachedPageSizes?: Array<{ w: number; h: number }>
   ): Promise<{ handle: PdfDocumentHandle; document: ParsedFixedDocument }> {
-    const rawBytes = data instanceof Uint8Array ? data : new Uint8Array(data);
-    // Clone bytes so PDF.js worker transfer does not detach caller's ArrayBuffer
-    const clonedBytes = new Uint8Array(rawBytes.slice(0));
+    const { transport, fileSize } = await createTauriPdfRangeTransport(filePath, fileName);
     const loadingTask = pdfjsLib.getDocument({
-      data: clonedBytes,
+      length: fileSize,
+      range: transport,
+      rangeChunkSize: PDF_RANGE_CHUNK_SIZE,
+      disableAutoFetch: true,
+      disableStream: true,
       useSystemFonts: true,
       isEvalSupported: false,
     });
-
     const pdfDoc = await loadingTask.promise;
-    const handle = new PdfDocumentHandle(pdfDoc);
-
-    const pages: FixedPageInfo[] = [];
-    for (let i = 1; i <= pdfDoc.numPages; i++) {
-      const page = await pdfDoc.getPage(i);
-      const vp = page.getViewport({ scale: 1.0 });
-      pages.push({
-        pageNumber: i,
-        width: Math.round(vp.width),
-        height: Math.round(vp.height),
-        aspectRatio: vp.width / vp.height,
-        rotation: vp.rotation,
-      });
-    }
-
-    // Extract metadata
-    let title = fileName.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ').trim();
-    let author: string | undefined;
-    let subject: string | undefined;
-    let keywords: string | undefined;
-    let creator: string | undefined;
-    let producer: string | undefined;
-    let creationDate: string | undefined;
-
-    try {
-      const meta = await pdfDoc.getMetadata();
-      const info = meta?.info as Record<string, unknown> | undefined;
-      if (info) {
-        if (typeof info.Title === 'string' && info.Title.trim()) title = info.Title.trim();
-        if (typeof info.Author === 'string' && info.Author.trim()) author = info.Author.trim();
-        if (typeof info.Subject === 'string' && info.Subject.trim()) subject = info.Subject.trim();
-        if (typeof info.Keywords === 'string' && info.Keywords.trim()) keywords = info.Keywords.trim();
-        if (typeof info.Creator === 'string' && info.Creator.trim()) creator = info.Creator.trim();
-        if (typeof info.Producer === 'string' && info.Producer.trim()) producer = info.Producer.trim();
-        if (typeof info.CreationDate === 'string') creationDate = info.CreationDate;
-      }
-    } catch (err) {
-      console.warn('Could not extract PDF metadata:', err);
-    }
-
-    // Extract Outline / Bookmarks
-    const rawOutline = await pdfDoc.getOutline();
-    const outline = await this.mapOutlines(rawOutline, pdfDoc);
-
-    // Extract Cover Thumbnail from Page 1
-    let coverBlobUrl: string | undefined;
-    try {
-      coverBlobUrl = await handle.getPageThumbnail(1, 240);
-    } catch (err) {
-      console.warn('Could not generate PDF cover thumbnail:', err);
-    }
-
-    const docId = `pdf-${fileName.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()}-${Date.now()}`;
-
-    const metadata: FixedDocumentMetadata = {
-      title,
-      author: author || 'Unknown Author',
-      subject,
-      keywords,
-      creator,
-      producer,
-      creationDate,
-      pageCount: pdfDoc.numPages,
-      format: 'pdf',
-      fileSizeBytes: rawBytes.byteLength,
-      coverBlobUrl,
-    };
-
-    const document: ParsedFixedDocument = {
-      id: docId,
-      fileName,
-      format: 'pdf',
-      metadata,
-      pages,
-      outline,
-    };
-
-    return { handle, document };
+    return await this.initDocument(pdfDoc, fileName, fileSize, initialPage, cachedPageSizes);
   }
 
-  private static async mapOutlines(
-    items: unknown[] | null,
-    pdfDoc: pdfjsLib.PDFDocumentProxy
-  ): Promise<FixedDocumentOutline[]> {
-    if (!items || !Array.isArray(items)) return [];
+  public static async parsePdf(
+    data: ArrayBuffer | Uint8Array,
+    fileName: string,
+    initialPage = 1,
+    cachedPageSizes?: Array<{ w: number; h: number }>
+  ): Promise<{ handle: PdfDocumentHandle; document: ParsedFixedDocument }> {
+    const rawBytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+    const loadingTask = pdfjsLib.getDocument({
+      data: rawBytes,
+      disableAutoFetch: true,
+      useSystemFonts: true,
+      isEvalSupported: false,
+    });
+    const pdfDoc = await loadingTask.promise;
+    return await this.initDocument(pdfDoc, fileName, rawBytes.byteLength, initialPage, cachedPageSizes);
+  }
 
-    const result: FixedDocumentOutline[] = [];
-    for (const item of items) {
-      if (!item || typeof item !== 'object') continue;
-      const raw = item as { title?: string; dest?: unknown; items?: unknown[] };
-      let pageNumber: number | undefined;
-
-      if (raw.dest) {
-        try {
-          let explicitDest: unknown[] | null = null;
-          if (typeof raw.dest === 'string') {
-            explicitDest = await pdfDoc.getDestination(raw.dest);
-          } else if (Array.isArray(raw.dest)) {
-            explicitDest = raw.dest;
-          }
-
-          if (explicitDest && explicitDest.length > 0) {
-            const pageRef = explicitDest[0];
-            if (typeof pageRef === 'object' && pageRef !== null) {
-              const pageIdx = await pdfDoc.getPageIndex(pageRef as { num: number; gen: number });
-              pageNumber = pageIdx + 1;
-            } else if (typeof pageRef === 'number') {
-              pageNumber = pageRef + 1;
-            }
-          }
-        } catch {
-          // Ignore destination resolution error
-        }
-      }
-
-      const subitems = raw.items && Array.isArray(raw.items)
-        ? await this.mapOutlines(raw.items, pdfDoc)
-        : undefined;
-
-      result.push({
-        id: `toc-${Math.random().toString(36).substring(2, 9)}`,
-        title: raw.title || 'Section',
-        pageNumber,
-        dest: typeof raw.dest === 'string' ? raw.dest : undefined,
-        children: subitems && subitems.length > 0 ? subitems : undefined,
-      });
-    }
-
-    return result;
+  private static async initDocument(
+    pdfDoc: pdfjsLib.PDFDocumentProxy,
+    fileName: string,
+    fileSizeBytes: number,
+    initialPage: number,
+    cachedPageSizes?: Array<{ w: number; h: number }>
+  ): Promise<{ handle: PdfDocumentHandle; document: ParsedFixedDocument }> {
+    const handle = new PdfDocumentHandle(pdfDoc);
+    const document = await initializeFixedPdfDocument(pdfDoc, fileName, fileSizeBytes, initialPage, cachedPageSizes);
+    return { handle, document };
   }
 }

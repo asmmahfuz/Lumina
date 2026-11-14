@@ -59,7 +59,7 @@ export interface ParsedComic {
 
 export const DEFAULT_COMIC_SETTINGS: ComicSettings = {
   readingMode: 'dual-rtl',
-  fitMode: 'fit-height',
+  fitMode: 'original',
   firstPageCover: true,
   gapless: true,
   webtoonMaxWidth: 860,

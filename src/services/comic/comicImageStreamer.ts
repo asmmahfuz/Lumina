@@ -9,11 +9,14 @@ import { ComicMetadata, ComicPage } from '@/types/comic';
 
 const IMAGE_EXT_REGEX = /\.(jpe?g|png|webp|gif|avif|svg)$/i;
 const JUNK_PATH_REGEX = /(^|[\\/])(\.|__MACOSX|Thumbs\.db|ehthumbs\.db|desktop\.ini)/i;
+const MAX_FULL_PAGE_CACHE = 10;
+const MAX_THUMBNAIL_CACHE = 30;
 
 export class ComicImageStreamer {
   private archive: SafeArchiveReader;
   private pages: ComicPage[] = [];
   private objectUrlCache: Map<number, string> = new Map();
+  private thumbnailUrlCache: Map<number, string> = new Map();
 
   constructor(archive: SafeArchiveReader) {
     this.archive = archive;
@@ -49,8 +52,11 @@ export class ComicImageStreamer {
    * Retrieves or lazily creates an Object URL for a given page index
    */
   public async getPageObjectUrl(index: number): Promise<string> {
-    if (this.objectUrlCache.has(index)) {
-      return this.objectUrlCache.get(index)!;
+    const cached = this.objectUrlCache.get(index);
+    if (cached) {
+      this.objectUrlCache.delete(index);
+      this.objectUrlCache.set(index, cached);
+      return cached;
     }
 
     const page = this.pages[index];
@@ -61,12 +67,62 @@ export class ComicImageStreamer {
     const url = await this.archive.readAsObjectUrl(page.path);
     this.objectUrlCache.set(index, url);
 
-    // Inspect image dimensions if not yet known
+    if (this.objectUrlCache.size > MAX_FULL_PAGE_CACHE) {
+      const oldest = this.objectUrlCache.keys().next().value;
+      if (oldest !== undefined) this.objectUrlCache.delete(oldest);
+    }
+
     if (page.aspectRatio === undefined) {
       this.probeImageDimensions(page, url).catch(() => {});
     }
 
     return url;
+  }
+
+  public getCachedThumbnailUrl(index: number): string | undefined {
+    return this.thumbnailUrlCache.get(index);
+  }
+
+  public async getPageThumbnailUrl(index: number, maxWidth = 140): Promise<string> {
+    const cachedThumb = this.thumbnailUrlCache.get(index);
+    if (cachedThumb) return cachedThumb;
+
+    const fullUrl = await this.getPageObjectUrl(index);
+    try {
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = reject;
+        el.src = fullUrl;
+      });
+      const ratio = img.naturalHeight / Math.max(img.naturalWidth, 1);
+      const w = Math.min(maxWidth, img.naturalWidth || maxWidth);
+      const h = Math.max(1, Math.round(w * ratio));
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return fullUrl;
+      ctx.drawImage(img, 0, 0, w, h);
+      const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', 0.72));
+      canvas.width = 0;
+      canvas.height = 0;
+      if (!blob) return fullUrl;
+
+      const thumbUrl = URL.createObjectURL(blob);
+      this.thumbnailUrlCache.set(index, thumbUrl);
+      if (this.thumbnailUrlCache.size > MAX_THUMBNAIL_CACHE) {
+        const oldestKey = this.thumbnailUrlCache.keys().next().value;
+        if (oldestKey !== undefined) {
+          const oldUrl = this.thumbnailUrlCache.get(oldestKey);
+          this.thumbnailUrlCache.delete(oldestKey);
+          if (oldUrl) { try { URL.revokeObjectURL(oldUrl); } catch { /* ignore */ } }
+        }
+      }
+      return thumbUrl;
+    } catch {
+      return fullUrl;
+    }
   }
 
   /**
@@ -167,6 +223,10 @@ export class ComicImageStreamer {
    */
   public revokeAll(): void {
     this.objectUrlCache.clear();
+    for (const url of this.thumbnailUrlCache.values()) {
+      try { URL.revokeObjectURL(url); } catch { /* ignore */ }
+    }
+    this.thumbnailUrlCache.clear();
     this.archive.revokeObjectUrls();
   }
 

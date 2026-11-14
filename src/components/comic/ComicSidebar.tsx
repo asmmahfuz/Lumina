@@ -1,6 +1,6 @@
 /**
  * Lumina Reader - Comic Sidebar Drawer
- * Tri-tab navigation rail: Page Thumbnails Grid, ComicInfo.xml metadata inspector, and Page Bookmarks
+ * Dual-tab navigation rail: Page Thumbnails Grid and Page Bookmarks
  */
 
 import React, { useState } from 'react';
@@ -8,10 +8,9 @@ import { ParsedComic } from '@/types/comic';
 import { Bookmark } from '@/types/book';
 import { ComicImageStreamer } from '@/services/comic/comicImageStreamer';
 import { ComicThumbnailsList } from './ComicThumbnailsList';
-import { ComicInfoPanel } from './ComicInfoPanel';
-import { Layers, Info, Bookmark as BookmarkIcon, X, Plus, Trash2 } from 'lucide-react';
+import { Layers, Bookmark as BookmarkIcon, X, Plus, Trash2 } from 'lucide-react';
 
-export type ComicSidebarTab = 'pages' | 'info' | 'bookmarks';
+export type ComicSidebarTab = 'pages' | 'bookmarks';
 
 interface ComicSidebarProps {
   comic: ParsedComic;
@@ -91,28 +90,6 @@ export const ComicSidebar: React.FC<ComicSidebarProps> = ({
           </button>
 
           <button
-            onClick={() => setActiveTab('info')}
-            title="Comic Metadata"
-            style={{
-              height: '26px',
-              padding: '0 8px',
-              fontSize: '11px',
-              fontWeight: activeTab === 'info' ? 600 : 400,
-              borderRadius: 'var(--radius-xs)',
-              border: 'none',
-              backgroundColor: activeTab === 'info' ? 'var(--color-accent-subtle)' : 'transparent',
-              color: activeTab === 'info' ? 'var(--color-accent)' : 'var(--color-text-secondary)',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-            }}
-          >
-            <Info size={13} />
-            <span>Info</span>
-          </button>
-
-          <button
             onClick={() => setActiveTab('bookmarks')}
             title="Page Bookmarks"
             style={{
@@ -166,15 +143,7 @@ export const ComicSidebar: React.FC<ComicSidebarProps> = ({
         />
       )}
 
-      {/* Tab 2: Comic Metadata Info */}
-      {activeTab === 'info' && (
-        <ComicInfoPanel
-          metadata={comic.metadata}
-          totalPageCount={comic.pages.length}
-        />
-      )}
-
-      {/* Tab 3: Bookmarks */}
+      {/* Tab 2: Bookmarks */}
       {activeTab === 'bookmarks' && (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--color-border)' }}>

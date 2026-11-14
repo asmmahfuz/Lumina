@@ -1,15 +1,7 @@
-/**
- * Lumina Reader - IndexedDB Storage Engine
- * Offline-first local database for books catalog, reading positions, cover caches, bookmarks, and annotations
- */
-
+/** Lumina Reader - IndexedDB Storage Engine */
 import {
-  BookMetadata,
-  ReaderSettings,
-  ReadingProgress,
-  DEFAULT_READER_SETTINGS,
-  Bookmark,
-  Annotation,
+  BookMetadata, ReaderSettings, ReadingProgress,
+  DEFAULT_READER_SETTINGS, Bookmark, Annotation,
 } from '@/types/book';
 
 const DB_NAME = 'lumina_reader_db';
@@ -28,6 +20,13 @@ function promisifyTx(tx: IDBTransaction): Promise<void> {
   });
 }
 
+function promisifyReq<T>(req: IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
 export class IndexedDbStorage {
   private db: IDBDatabase | null = null;
   private initPromise: Promise<IDBDatabase> | null = null;
@@ -42,31 +41,18 @@ export class IndexedDbStorage {
 
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
-        if (!db.objectStoreNames.contains('books')) {
-          db.createObjectStore('books', { keyPath: 'id' });
-        }
-        if (!db.objectStoreNames.contains('reading_progress')) {
-          db.createObjectStore('reading_progress', { keyPath: 'bookId' });
-        }
-        if (!db.objectStoreNames.contains('book_blobs')) {
-          db.createObjectStore('book_blobs', { keyPath: 'bookId' });
-        }
-        if (!db.objectStoreNames.contains('settings')) {
-          db.createObjectStore('settings', { keyPath: 'id' });
-        }
-        if (!db.objectStoreNames.contains('book_covers')) {
-          db.createObjectStore('book_covers', { keyPath: 'bookId' });
-        }
-        if (!db.objectStoreNames.contains('bookmarks')) {
-          db.createObjectStore('bookmarks', { keyPath: 'id' });
-        }
-        if (!db.objectStoreNames.contains('annotations')) {
-          db.createObjectStore('annotations', { keyPath: 'id' });
+        const stores: [string, string][] = [
+          ['books', 'id'], ['reading_progress', 'bookId'], ['book_blobs', 'bookId'],
+          ['settings', 'id'], ['book_covers', 'bookId'], ['bookmarks', 'id'], ['annotations', 'id'],
+        ];
+        for (const [name, keyPath] of stores) {
+          if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, { keyPath });
         }
       };
 
       request.onsuccess = () => {
         this.db = request.result;
+        this.pruneOldBlobsOnStartup(request.result);
         resolve(request.result);
       };
 
@@ -80,18 +66,14 @@ export class IndexedDbStorage {
 
   public async saveBook(
     book: BookMetadata,
-    fileBlob?: ArrayBuffer,
+    _fileBlob?: ArrayBuffer,
     coverData?: ArrayBuffer,
     coverMime?: string
   ): Promise<void> {
     const db = await this.getDb();
-    const stores = ['books', 'book_blobs', 'book_covers'];
+    const stores = ['books', 'book_covers'];
     const tx = db.transaction(stores, 'readwrite');
-
     tx.objectStore('books').put(book);
-    if (fileBlob) {
-      tx.objectStore('book_blobs').put({ bookId: book.id, data: fileBlob });
-    }
     if (coverData) {
       tx.objectStore('book_covers').put({
         bookId: book.id,
@@ -104,40 +86,26 @@ export class IndexedDbStorage {
 
   public async getBook(id: string): Promise<BookMetadata | null> {
     const db = await this.getDb();
-    const tx = db.transaction('books', 'readonly');
-    const request = tx.objectStore('books').get(id);
-
-    return new Promise((resolve, reject) => {
-      request.onsuccess = async () => {
-        const book = request.result as BookMetadata | undefined;
-        if (!book) {
-          resolve(null);
-          return;
-        }
-        const coverUrl = await this.getCoverObjectUrl(book.id);
-        if (coverUrl) book.coverBlobUrl = coverUrl;
-        resolve(book);
-      };
-      request.onerror = () => reject(request.error);
-    });
+    const req = db.transaction('books', 'readonly').objectStore('books').get(id);
+    const book = ((await promisifyReq(req)) as BookMetadata | undefined) || null;
+    if (book) {
+      const coverUrl = await this.getCoverObjectUrl(book.id);
+      if (coverUrl) book.coverBlobUrl = coverUrl;
+    }
+    return book;
   }
 
   public async getAllBooks(): Promise<BookMetadata[]> {
     const db = await this.getDb();
-    const tx = db.transaction('books', 'readonly');
-    const request = tx.objectStore('books').getAll();
-
-    return new Promise((resolve, reject) => {
-      request.onsuccess = async () => {
-        const books = (request.result || []) as BookMetadata[];
-        for (const book of books) {
-          const coverUrl = await this.getCoverObjectUrl(book.id);
-          if (coverUrl) book.coverBlobUrl = coverUrl;
-        }
-        resolve(books);
-      };
-      request.onerror = () => reject(request.error);
-    });
+    const req = db.transaction('books', 'readonly').objectStore('books').getAll();
+    const books = ((await promisifyReq(req)) || []) as BookMetadata[];
+    await Promise.all(
+      books.map(async (book) => {
+        const coverUrl = await this.getCoverObjectUrl(book.id);
+        if (coverUrl) book.coverBlobUrl = coverUrl;
+      })
+    );
+    return books;
   }
 
   public async deleteBook(id: string): Promise<void> {
@@ -161,22 +129,77 @@ export class IndexedDbStorage {
     return promisifyTx(tx);
   }
 
+  public async clearAllBooks(): Promise<void> {
+    const db = await this.getDb();
+    const stores = ['books', 'book_blobs', 'reading_progress', 'book_covers', 'bookmarks', 'annotations'];
+    const tx = db.transaction(stores, 'readwrite');
+    stores.forEach((s) => tx.objectStore(s).clear());
+    for (const url of this.coverUrlCache.values()) {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {
+        // ignore
+      }
+    }
+    this.coverUrlCache.clear();
+    return promisifyTx(tx);
+  }
+
   public async getBookBlob(bookId: string): Promise<ArrayBuffer | null> {
     const db = await this.getDb();
-    const tx = db.transaction('book_blobs', 'readonly');
-    const request = tx.objectStore('book_blobs').get(bookId);
+    const req = db.transaction('book_blobs', 'readonly').objectStore('book_blobs').get(bookId);
+    const res = (await promisifyReq(req)) as { bookId: string; data: ArrayBuffer } | undefined;
+    return res ? res.data : null;
+  }
 
+  public async setActiveBookBlob(bookId: string, data: ArrayBuffer): Promise<void> {
+    const db = await this.getDb();
+    const tx = db.transaction('book_blobs', 'readwrite');
+    const store = tx.objectStore('book_blobs');
+    store.clear();
+    store.put({ bookId, data });
+    return promisifyTx(tx);
+  }
+
+  public async getActiveBookBlob(bookId: string): Promise<ArrayBuffer | null> {
+    return this.getBookBlob(bookId);
+  }
+
+  public async pruneInactiveBlobs(activeBookId?: string): Promise<void> {
+    const db = await this.getDb();
+    const tx = db.transaction('book_blobs', 'readwrite');
+    const store = tx.objectStore('book_blobs');
+    const req = store.getAllKeys();
     return new Promise((resolve, reject) => {
-      request.onsuccess = () => resolve(request.result ? request.result.data : null);
-      request.onerror = () => reject(request.error);
+      req.onsuccess = () => {
+        const keys = (req.result || []) as string[];
+        for (const key of keys) {
+          if (!activeBookId || key !== activeBookId) store.delete(key);
+        }
+        promisifyTx(tx).then(resolve).catch(reject);
+      };
+      req.onerror = () => reject(req.error);
     });
   }
 
-  public async saveBookBlob(bookId: string, data: ArrayBuffer): Promise<void> {
-    const db = await this.getDb();
-    const tx = db.transaction('book_blobs', 'readwrite');
-    tx.objectStore('book_blobs').put({ bookId, data });
-    return promisifyTx(tx);
+  private pruneOldBlobsOnStartup(db: IDBDatabase): void {
+    try {
+      if (!db.objectStoreNames.contains('book_blobs')) return;
+      const tx = db.transaction('book_blobs', 'readwrite');
+      const store = tx.objectStore('book_blobs');
+      const countReq = store.count();
+      countReq.onsuccess = () => {
+        if (countReq.result > 1) {
+          const keysReq = store.getAllKeys();
+          keysReq.onsuccess = () => {
+            const keys = (keysReq.result || []) as string[];
+            for (let i = 0; i < keys.length - 1; i++) store.delete(keys[i]);
+          };
+        }
+      };
+    } catch {
+      // ignore
+    }
   }
 
   public async saveBookCover(bookId: string, data: ArrayBuffer, mimeType = 'image/jpeg'): Promise<void> {
@@ -231,13 +254,8 @@ export class IndexedDbStorage {
 
   public async getReadingProgress(bookId: string): Promise<ReadingProgress | null> {
     const db = await this.getDb();
-    const tx = db.transaction('reading_progress', 'readonly');
-    const request = tx.objectStore('reading_progress').get(bookId);
-
-    return new Promise((resolve, reject) => {
-      request.onsuccess = () => resolve(request.result || null);
-      request.onerror = () => reject(request.error);
-    });
+    const req = db.transaction('reading_progress', 'readonly').objectStore('reading_progress').get(bookId);
+    return ((await promisifyReq(req)) as ReadingProgress | undefined) || null;
   }
 
   public async saveBookmark(bookmark: Bookmark): Promise<void> {
@@ -249,18 +267,9 @@ export class IndexedDbStorage {
 
   public async getBookmarks(bookId: string): Promise<Bookmark[]> {
     const db = await this.getDb();
-    const tx = db.transaction('bookmarks', 'readonly');
-    const request = tx.objectStore('bookmarks').getAll();
-
-    return new Promise((resolve, reject) => {
-      request.onsuccess = () => {
-        const all = (request.result || []) as Bookmark[];
-        const filtered = all.filter((b) => b.bookId === bookId);
-        filtered.sort((a, b) => b.createdAt - a.createdAt);
-        resolve(filtered);
-      };
-      request.onerror = () => reject(request.error);
-    });
+    const req = db.transaction('bookmarks', 'readonly').objectStore('bookmarks').getAll();
+    const all = ((await promisifyReq(req)) || []) as Bookmark[];
+    return all.filter((b) => b.bookId === bookId).sort((a, b) => b.createdAt - a.createdAt);
   }
 
   public async deleteBookmark(bookmarkId: string): Promise<void> {
@@ -279,18 +288,9 @@ export class IndexedDbStorage {
 
   public async getAnnotations(bookId: string): Promise<Annotation[]> {
     const db = await this.getDb();
-    const tx = db.transaction('annotations', 'readonly');
-    const request = tx.objectStore('annotations').getAll();
-
-    return new Promise((resolve, reject) => {
-      request.onsuccess = () => {
-        const all = (request.result || []) as Annotation[];
-        const filtered = all.filter((a) => a.bookId === bookId);
-        filtered.sort((a, b) => b.createdAt - a.createdAt);
-        resolve(filtered);
-      };
-      request.onerror = () => reject(request.error);
-    });
+    const req = db.transaction('annotations', 'readonly').objectStore('annotations').getAll();
+    const all = ((await promisifyReq(req)) || []) as Annotation[];
+    return all.filter((a) => a.bookId === bookId).sort((a, b) => b.createdAt - a.createdAt);
   }
 
   public async deleteAnnotation(annotationId: string): Promise<void> {

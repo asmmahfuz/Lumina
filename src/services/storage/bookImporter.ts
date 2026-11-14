@@ -13,39 +13,54 @@ import { Fb2Engine } from '@/services/fb2/fb2Engine';
 import { TextEngine } from '@/services/text/textEngine';
 import { localDb } from './indexedDb';
 
+export interface ImportFileInput {
+  name: string;
+  data: ArrayBuffer;
+  filePath?: string;
+  fileHandle?: FileSystemFileHandle;
+}
+
 export class UniversalBookImporter {
-  /**
-   * Imports an arbitrary supported book file into the local library
-   */
-  public static async importFile(file: { name: string; data: ArrayBuffer }): Promise<BookMetadata> {
+  public static async importFile(file: ImportFileInput): Promise<BookMetadata> {
     const ext = file.name.split('.').pop()?.toLowerCase() || '';
     const format = (ext as BookFormat) || 'epub';
     const cleanBaseName = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
 
     if (format === 'epub') {
-      return await this.importEpub(file.name, file.data);
+      return await this.importEpub(file);
     } else if (['cbz', 'cbr', 'cbt', 'cb7'].includes(format)) {
-      return await this.importComic(file.name, file.data, format as 'cbz' | 'cbr');
+      return await this.importComic(file, format as 'cbz' | 'cbr');
     } else if (format === 'pdf') {
-      return await this.importPdf(file.name, file.data);
+      return await this.importPdf(file);
     } else if (format === 'djvu') {
-      return await this.importDjvu(file.name, file.data);
+      return await this.importDjvu(file);
     } else if (format === 'mobi' || format === 'azw3' || ext === 'azw') {
-      return await this.importMobi(file.name, file.data, format === 'azw3' ? 'azw3' : 'mobi');
+      return await this.importMobi(file, format === 'azw3' ? 'azw3' : 'mobi');
     } else if (format === 'fb2' || file.name.toLowerCase().endsWith('.fb2.zip')) {
-      return await this.importFb2(file.name, file.data);
+      return await this.importFb2(file);
     } else if (format === 'md' || format === 'txt') {
-      return await this.importTextDocument(file.name, file.data, format);
+      return await this.importTextDocument(file, format);
     } else {
-      return await this.importGenericDocument(cleanBaseName, file.name, file.data, format);
+      return await this.importGenericDocument(cleanBaseName, file, format);
     }
   }
 
-  private static async importEpub(fileName: string, data: ArrayBuffer): Promise<BookMetadata> {
-    const { book } = await EpubEngine.parseEpub(data);
+  private static async persistImportedBook(
+    metadata: BookMetadata,
+    data: ArrayBuffer,
+    coverData?: ArrayBuffer,
+    coverMime?: string
+  ): Promise<BookMetadata> {
+    await localDb.saveBook(metadata, undefined, coverData, coverMime);
+    await localDb.setActiveBookBlob(metadata.id, data);
+    return metadata;
+  }
+
+  private static async importEpub(file: ImportFileInput): Promise<BookMetadata> {
+    const { book } = await EpubEngine.parseEpub(file.data);
     const bookId =
       book.metadata.identifier ||
-      fileName.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase() ||
+      file.name.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase() ||
       `epub-${Date.now()}`;
 
     const metadata: BookMetadata = {
@@ -57,9 +72,12 @@ export class UniversalBookImporter {
       language: book.metadata.language || 'en',
       pubdate: book.metadata.pubdate,
       format: 'epub',
-      fileSizeBytes: data.byteLength,
+      fileSizeBytes: file.data.byteLength,
       coverBlobUrl: book.metadata.coverBlobUrl,
       importedAt: Date.now(),
+      fileName: file.name,
+      filePath: file.filePath,
+      fileHandle: file.fileHandle,
       progress: {
         bookId,
         percent: 0,
@@ -69,23 +87,21 @@ export class UniversalBookImporter {
       },
     };
 
-    await localDb.saveBook(metadata, data, book.metadata.coverData, book.metadata.coverMediaType);
-    return metadata;
+    return await this.persistImportedBook(metadata, file.data, book.metadata.coverData, book.metadata.coverMediaType);
   }
 
   private static async importComic(
-    fileName: string,
-    data: ArrayBuffer,
+    file: ImportFileInput,
     format: 'cbz' | 'cbr'
   ): Promise<BookMetadata> {
-    const bookId = `comic-${fileName.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()}-${Date.now()}`;
-    const title = fileName.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
+    const bookId = `comic-${file.name.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()}-${Date.now()}`;
+    const title = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
 
     let coverData: ArrayBuffer | undefined;
     let coverBlobUrl: string | undefined;
 
     try {
-      const archive = await SafeArchiveReader.fromData(data);
+      const archive = await SafeArchiveReader.fromData(file.data);
       const imageFiles = archive
         .getSafeFileList()
         .filter((path) => /\.(jpe?g|png|webp)$/i.test(path))
@@ -105,9 +121,12 @@ export class UniversalBookImporter {
       title,
       creator: 'Graphic Novel / Manga',
       format,
-      fileSizeBytes: data.byteLength,
+      fileSizeBytes: file.data.byteLength,
       coverBlobUrl,
       importedAt: Date.now(),
+      fileName: file.name,
+      filePath: file.filePath,
+      fileHandle: file.fileHandle,
       progress: {
         bookId,
         percent: 0,
@@ -115,17 +134,15 @@ export class UniversalBookImporter {
       },
     };
 
-    await localDb.saveBook(metadata, data, coverData, 'image/jpeg');
-    return metadata;
+    return await this.persistImportedBook(metadata, file.data, coverData, 'image/jpeg');
   }
 
   private static async importMobi(
-    fileName: string,
-    data: ArrayBuffer,
+    file: ImportFileInput,
     format: 'mobi' | 'azw3'
   ): Promise<BookMetadata> {
-    const { book } = await MobiEngine.parseMobi(data.slice(0), fileName);
-    const bookId = `${format}-${fileName.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()}-${Date.now()}`;
+    const { book } = await MobiEngine.parseMobi(file.data.slice(0), file.name);
+    const bookId = `${format}-${file.name.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()}-${Date.now()}`;
 
     const metadata: BookMetadata = {
       id: bookId,
@@ -136,9 +153,12 @@ export class UniversalBookImporter {
       language: book.metadata.language || 'en',
       pubdate: book.metadata.pubdate,
       format,
-      fileSizeBytes: data.byteLength,
+      fileSizeBytes: file.data.byteLength,
       coverBlobUrl: book.metadata.coverBlobUrl,
       importedAt: Date.now(),
+      fileName: file.name,
+      filePath: file.filePath,
+      fileHandle: file.fileHandle,
       progress: {
         bookId,
         percent: 0,
@@ -148,13 +168,12 @@ export class UniversalBookImporter {
       },
     };
 
-    await localDb.saveBook(metadata, data, book.metadata.coverData, book.metadata.coverMediaType);
-    return metadata;
+    return await this.persistImportedBook(metadata, file.data, book.metadata.coverData, book.metadata.coverMediaType);
   }
 
-  private static async importFb2(fileName: string, data: ArrayBuffer): Promise<BookMetadata> {
-    const { book } = await Fb2Engine.parseFb2(data.slice(0), fileName);
-    const bookId = `fb2-${fileName.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()}-${Date.now()}`;
+  private static async importFb2(file: ImportFileInput): Promise<BookMetadata> {
+    const { book } = await Fb2Engine.parseFb2(file.data.slice(0), file.name);
+    const bookId = `fb2-${file.name.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()}-${Date.now()}`;
 
     const metadata: BookMetadata = {
       id: bookId,
@@ -165,9 +184,12 @@ export class UniversalBookImporter {
       language: book.metadata.language || 'en',
       pubdate: book.metadata.pubdate,
       format: 'fb2',
-      fileSizeBytes: data.byteLength,
+      fileSizeBytes: file.data.byteLength,
       coverBlobUrl: book.metadata.coverBlobUrl,
       importedAt: Date.now(),
+      fileName: file.name,
+      filePath: file.filePath,
+      fileHandle: file.fileHandle,
       progress: {
         bookId,
         percent: 0,
@@ -177,17 +199,15 @@ export class UniversalBookImporter {
       },
     };
 
-    await localDb.saveBook(metadata, data, book.metadata.coverData, book.metadata.coverMediaType);
-    return metadata;
+    return await this.persistImportedBook(metadata, file.data, book.metadata.coverData, book.metadata.coverMediaType);
   }
 
   private static async importTextDocument(
-    fileName: string,
-    data: ArrayBuffer,
+    file: ImportFileInput,
     format: 'md' | 'txt'
   ): Promise<BookMetadata> {
-    const { book } = await TextEngine.parseTextDocument(data.slice(0), fileName, format);
-    const bookId = `${format}-${fileName.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()}-${Date.now()}`;
+    const { book } = await TextEngine.parseTextDocument(file.data.slice(0), file.name, format);
+    const bookId = `${format}-${file.name.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()}-${Date.now()}`;
 
     const metadata: BookMetadata = {
       id: bookId,
@@ -195,9 +215,12 @@ export class UniversalBookImporter {
       creator: book.metadata.creator || (format === 'md' ? 'Markdown Author' : 'Plain Text Author'),
       description: book.metadata.description,
       format,
-      fileSizeBytes: data.byteLength,
+      fileSizeBytes: file.data.byteLength,
       coverBlobUrl: book.metadata.coverBlobUrl,
       importedAt: Date.now(),
+      fileName: file.name,
+      filePath: file.filePath,
+      fileHandle: file.fileHandle,
       progress: {
         bookId,
         percent: 0,
@@ -207,12 +230,11 @@ export class UniversalBookImporter {
       },
     };
 
-    await localDb.saveBook(metadata, data, book.metadata.coverData, book.metadata.coverMediaType);
-    return metadata;
+    return await this.persistImportedBook(metadata, file.data, book.metadata.coverData, book.metadata.coverMediaType);
   }
 
-  private static async importPdf(fileName: string, data: ArrayBuffer): Promise<BookMetadata> {
-    const { document, handle } = await PdfEngine.parsePdf(data.slice(0), fileName);
+  private static async importPdf(file: ImportFileInput): Promise<BookMetadata> {
+    const { document, handle } = await PdfEngine.parsePdf(file.data.slice(0), file.name);
     const bookId = document.id;
 
     let coverBlobUrl: string | undefined;
@@ -220,6 +242,8 @@ export class UniversalBookImporter {
       coverBlobUrl = await handle.getPageThumbnail(1, 240);
     } catch {
       // Ignore
+    } finally {
+      handle.destroy();
     }
 
     const metadata: BookMetadata = {
@@ -228,9 +252,12 @@ export class UniversalBookImporter {
       creator: document.metadata.author || 'PDF Document',
       description: document.metadata.subject,
       format: 'pdf',
-      fileSizeBytes: data.byteLength,
+      fileSizeBytes: file.data.byteLength,
       coverBlobUrl,
       importedAt: Date.now(),
+      fileName: file.name,
+      filePath: file.filePath,
+      fileHandle: file.fileHandle,
       progress: {
         bookId,
         percent: 0,
@@ -239,12 +266,11 @@ export class UniversalBookImporter {
       },
     };
 
-    await localDb.saveBook(metadata, data);
-    return metadata;
+    return await this.persistImportedBook(metadata, file.data);
   }
 
-  private static async importDjvu(fileName: string, data: ArrayBuffer): Promise<BookMetadata> {
-    const { document, handle } = await DjvuEngine.parseDjvu(data.slice(0), fileName);
+  private static async importDjvu(file: ImportFileInput): Promise<BookMetadata> {
+    const { document, handle } = await DjvuEngine.parseDjvu(file.data.slice(0), file.name);
     const bookId = document.id;
 
     let coverBlobUrl: string | undefined;
@@ -252,6 +278,8 @@ export class UniversalBookImporter {
       coverBlobUrl = await handle.getPageThumbnail(1, 240);
     } catch {
       // Ignore
+    } finally {
+      handle.destroy();
     }
 
     const metadata: BookMetadata = {
@@ -259,9 +287,12 @@ export class UniversalBookImporter {
       title: document.metadata.title,
       creator: document.metadata.author || 'DjVu Scanned Document',
       format: 'djvu',
-      fileSizeBytes: data.byteLength,
+      fileSizeBytes: file.data.byteLength,
       coverBlobUrl,
       importedAt: Date.now(),
+      fileName: file.name,
+      filePath: file.filePath,
+      fileHandle: file.fileHandle,
       progress: {
         bookId,
         percent: 0,
@@ -270,25 +301,26 @@ export class UniversalBookImporter {
       },
     };
 
-    await localDb.saveBook(metadata, data);
-    return metadata;
+    return await this.persistImportedBook(metadata, file.data);
   }
 
   private static async importGenericDocument(
     cleanTitle: string,
-    fileName: string,
-    data: ArrayBuffer,
+    file: ImportFileInput,
     format: BookFormat
   ): Promise<BookMetadata> {
-    const bookId = `${format}-${fileName.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()}-${Date.now()}`;
+    const bookId = `${format}-${file.name.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()}-${Date.now()}`;
 
     const metadata: BookMetadata = {
       id: bookId,
       title: cleanTitle,
       creator: format.toUpperCase() + ' Document',
       format,
-      fileSizeBytes: data.byteLength,
+      fileSizeBytes: file.data.byteLength,
       importedAt: Date.now(),
+      fileName: file.name,
+      filePath: file.filePath,
+      fileHandle: file.fileHandle,
       progress: {
         bookId,
         percent: 0,
@@ -296,8 +328,6 @@ export class UniversalBookImporter {
       },
     };
 
-    await localDb.saveBook(metadata, data);
-    return metadata;
+    return await this.persistImportedBook(metadata, file.data);
   }
 }
-

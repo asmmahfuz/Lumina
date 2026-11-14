@@ -18,13 +18,15 @@ export interface BookFile {
   name: string;
   size: number;
   filePath?: string;
-  data: ArrayBuffer;
+  fileHandle?: FileSystemFileHandle;
+  data?: ArrayBuffer;
   format: BookFormat;
 }
 
 export interface BookSource {
   bookId: string;
   filePath?: string;
+  fileHandle?: FileSystemFileHandle;
   blob?: Blob;
 }
 
@@ -48,6 +50,9 @@ export interface IPlatformAdapter {
 
   /** Remove a book and its associated reading data from local storage */
   deleteBook(bookId: string): Promise<void>;
+
+  /** Clear all books and reading history from local storage while preserving settings */
+  clearAllBooks(): Promise<void>;
 
   /** Save persistent reading position (CFI or page offset) */
   updateReadingProgress(bookId: string, progress: ReadingProgress): Promise<void>;

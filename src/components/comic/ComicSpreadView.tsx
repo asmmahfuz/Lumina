@@ -131,6 +131,14 @@ export const ComicSpreadView: React.FC<ComicSpreadViewProps> = ({
 
   const getImageStyle = (): React.CSSProperties => {
     switch (fitMode) {
+      case 'original':
+        return {
+          width: 'auto',
+          height: 'auto',
+          maxWidth: isSpread ? '50%' : '100%',
+          maxHeight: '100%',
+          objectFit: 'none',
+        };
       case 'fit-height':
         return {
           height: '100%',

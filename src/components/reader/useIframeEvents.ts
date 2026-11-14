@@ -34,6 +34,10 @@ export function useIframeEvents({
           e.target instanceof HTMLInputElement ||
           e.target instanceof HTMLTextAreaElement;
 
+        if (e.key === 'Escape' || e.key === 'F11') {
+          window.dispatchEvent(new CustomEvent('lumina:fullscreen-keydown', { detail: { key: e.key } }));
+        }
+
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
           e.preventDefault();
           onAddCurrentBookmark?.();
@@ -45,6 +49,14 @@ export function useIframeEvents({
           openSearchTab();
         } else {
           handleKeyDown(e);
+        }
+      });
+
+      // 1b. Forward top-edge mouse proximity when in fullscreen
+      doc.addEventListener('mousemove', (e: MouseEvent) => {
+        const rect = iframeRef.current?.getBoundingClientRect();
+        if (rect && rect.top + e.clientY <= 12) {
+          window.dispatchEvent(new CustomEvent('lumina:fullscreen-top-hover'));
         }
       });
 

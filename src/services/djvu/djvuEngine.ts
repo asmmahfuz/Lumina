@@ -1,15 +1,14 @@
 /**
- * Lumina Reader - High-Performance DjVu Document Engine
- * Pure-Rust WebAssembly wavelet document decoder, canvas rasterization, and text layer extraction
+ * Lumina Reader - Low-RAM DjVu Document Engine
+ * Pure-Rust WebAssembly wavelet document decoder with lazy page metadata,
+ * bounded thumbnail ObjectURL cache, and DPR-capped rendering.
  */
 
 import initDjvu, { WasmDocument, WasmPage, wasmSimd128Supported } from 'djvu-rs';
-import {
-  FixedDocumentMetadata,
-  FixedDocumentOutline,
-  FixedPageInfo,
-  ParsedFixedDocument,
-} from '@/types/pdf';
+import { FixedDocumentMetadata, FixedPageInfo, ParsedFixedDocument } from '@/types/pdf';
+
+const MAX_THUMBNAIL_CACHE = 32;
+const MAX_DPR = 1.5;
 
 let djvuInitialized = false;
 let djvuInitPromise: Promise<unknown> | null = null;
@@ -29,6 +28,7 @@ async function ensureDjvuInit(): Promise<void> {
 export class DjvuDocumentHandle {
   private doc: WasmDocument;
   private thumbnailCache = new Map<number, string>();
+  private disposed = false;
 
   constructor(doc: WasmDocument) {
     this.doc = doc;
@@ -42,30 +42,44 @@ export class DjvuDocumentHandle {
     return this.doc.page(pageNumber - 1);
   }
 
-  public getPageText(pageNumber: number): string | undefined {
-    try {
-      const page = this.getPage(pageNumber);
-      return page.text();
-    } catch {
-      return undefined;
+  public getCachedThumbnail(pageNumber: number): string | undefined {
+    const url = this.thumbnailCache.get(pageNumber);
+    if (url) {
+      this.thumbnailCache.delete(pageNumber);
+      this.thumbnailCache.set(pageNumber, url);
+    }
+    return url;
+  }
+
+  private putThumbnail(pageNumber: number, url: string): void {
+    const existing = this.thumbnailCache.get(pageNumber);
+    if (existing && existing !== url) {
+      try { URL.revokeObjectURL(existing); } catch { /* ignore */ }
+      this.thumbnailCache.delete(pageNumber);
+    }
+    this.thumbnailCache.set(pageNumber, url);
+    if (this.thumbnailCache.size > MAX_THUMBNAIL_CACHE) {
+      const oldestKey = this.thumbnailCache.keys().next().value;
+      if (oldestKey !== undefined) {
+        const oldUrl = this.thumbnailCache.get(oldestKey);
+        this.thumbnailCache.delete(oldestKey);
+        if (oldUrl) { try { URL.revokeObjectURL(oldUrl); } catch { /* ignore */ } }
+      }
     }
   }
 
-  /**
-   * Renders the requested DjVu page to a canvas context at target scale
-   */
   public async renderPageToCanvas(
     pageNumber: number,
     canvas: HTMLCanvasElement,
     scale: number,
     abortSignal?: AbortSignal
   ): Promise<{ width: number; height: number; cssWidth: number; cssHeight: number; cancelled?: boolean }> {
-    if (abortSignal?.aborted) {
+    if (abortSignal?.aborted || this.disposed) {
       return { width: 0, height: 0, cssWidth: 0, cssHeight: 0, cancelled: true };
     }
 
     const page = this.getPage(pageNumber);
-    const dpr = Math.max(window.devicePixelRatio || 1, 1);
+    const dpr = Math.min(Math.max(window.devicePixelRatio || 1, 1), MAX_DPR);
     const baseDpi = page.dpi() || 150;
     const targetDpi = Math.max(Math.round(baseDpi * scale * dpr), 72);
 
@@ -84,60 +98,85 @@ export class DjvuDocumentHandle {
     if (!ctx) throw new Error('Could not obtain canvas 2D context for DjVu');
 
     const pixels = page.render(targetDpi);
-    if (abortSignal?.aborted) {
+    if (abortSignal?.aborted || this.disposed) {
       return { width: 0, height: 0, cssWidth, cssHeight, cancelled: true };
     }
 
     const imageData = ctx.createImageData(w, h);
     imageData.data.set(pixels);
     ctx.putImageData(imageData, 0, 0);
-
-    return {
-      width: w,
-      height: h,
-      cssWidth,
-      cssHeight,
-    };
+    return { width: w, height: h, cssWidth, cssHeight };
   }
 
-  /**
-   * Generates or retrieves cached page thumbnail data URL
-   */
-  public async getPageThumbnail(pageNumber: number, maxWidth = 180): Promise<string> {
-    if (this.thumbnailCache.has(pageNumber)) {
-      return this.thumbnailCache.get(pageNumber)!;
-    }
+  public async captureThumbnailFromCanvas(
+    pageNumber: number,
+    sourceCanvas: HTMLCanvasElement,
+    maxWidth = 140
+  ): Promise<{ url: string; blob: Blob } | null> {
+    if (this.disposed || sourceCanvas.width === 0 || sourceCanvas.height === 0) return null;
+    const existing = this.getCachedThumbnail(pageNumber);
+    if (existing && pageNumber !== 1) return { url: existing, blob: new Blob() };
+
+    const ratio = sourceCanvas.height / sourceCanvas.width;
+    const w = Math.min(maxWidth, sourceCanvas.width);
+    const h = Math.max(1, Math.round(w * ratio));
+    const offscreen = document.createElement('canvas');
+    offscreen.width = w;
+    offscreen.height = h;
+    const ctx = offscreen.getContext('2d', { alpha: false });
+    if (!ctx) return null;
+
+    ctx.drawImage(sourceCanvas, 0, 0, w, h);
+    const blob = await new Promise<Blob | null>((resolve) => offscreen.toBlob(resolve, 'image/jpeg', 0.72));
+    offscreen.width = 0;
+    offscreen.height = 0;
+    if (!blob || this.disposed) return null;
+
+    const url = existing || URL.createObjectURL(blob);
+    if (!existing) this.putThumbnail(pageNumber, url);
+    return { url, blob };
+  }
+
+  public async getPageThumbnail(pageNumber: number, maxWidth = 140): Promise<string> {
+    const cached = this.getCachedThumbnail(pageNumber);
+    if (cached) return cached;
+    if (this.disposed) return '';
 
     const page = this.getPage(pageNumber);
     const baseDpi = page.dpi() || 150;
     const nativeWidth = page.width_at(baseDpi);
-    const scale = maxWidth / nativeWidth;
+    const scale = maxWidth / Math.max(nativeWidth, 1);
     const thumbDpi = Math.max(Math.round(baseDpi * scale), 36);
 
     const w = page.width_at(thumbDpi);
     const h = page.height_at(thumbDpi);
-
     const canvas = document.createElement('canvas');
     canvas.width = w;
     canvas.height = h;
     const ctx = canvas.getContext('2d');
     if (!ctx) return '';
 
-    const pixels = page.render(thumbDpi);
-    const imageData = ctx.createImageData(w, h);
-    imageData.data.set(pixels);
-    ctx.putImageData(imageData, 0, 0);
-
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-    this.thumbnailCache.set(pageNumber, dataUrl);
-    return dataUrl;
+    try {
+      const pixels = page.render(thumbDpi);
+      const imageData = ctx.createImageData(w, h);
+      imageData.data.set(pixels);
+      ctx.putImageData(imageData, 0, 0);
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.72));
+      if (!blob || this.disposed) return '';
+      const url = URL.createObjectURL(blob);
+      this.putThumbnail(pageNumber, url);
+      return url;
+    } finally {
+      canvas.width = 0;
+      canvas.height = 0;
+    }
   }
 
   public destroy(): void {
-    try {
-      this.doc.free();
-    } catch {
-      // Ignore
+    this.disposed = true;
+    try { this.doc.free(); } catch { /* ignore */ }
+    for (const url of this.thumbnailCache.values()) {
+      try { URL.revokeObjectURL(url); } catch { /* ignore */ }
     }
     this.thumbnailCache.clear();
   }
@@ -146,7 +185,9 @@ export class DjvuDocumentHandle {
 export class DjvuEngine {
   public static async parseDjvu(
     data: ArrayBuffer | Uint8Array,
-    fileName: string
+    fileName: string,
+    initialPage = 1,
+    cachedPageSizes?: Array<{ w: number; h: number }>
   ): Promise<{ handle: DjvuDocumentHandle; document: ParsedFixedDocument }> {
     await ensureDjvuInit();
 
@@ -155,36 +196,25 @@ export class DjvuEngine {
     const handle = new DjvuDocumentHandle(doc);
     const pageCount = doc.page_count();
 
-    const pages: FixedPageInfo[] = [];
+    let seedWidth = 612;
+    let seedHeight = 792;
+    if (pageCount > 0) {
+      const probeIdx = Math.max(0, Math.min(pageCount - 1, initialPage - 1));
+      const p = doc.page(probeIdx);
+      const dpi = p.dpi() || 150;
+      seedWidth = Math.round(p.width_at(dpi) * (72 / dpi));
+      seedHeight = Math.round(p.height_at(dpi) * (72 / dpi));
+    }
+
+    const hasValidCache = cachedPageSizes && cachedPageSizes.length === pageCount;
+    const pages: FixedPageInfo[] = new Array(pageCount);
     for (let i = 0; i < pageCount; i++) {
-      const page = doc.page(i);
-      const dpi = page.dpi() || 150;
-      // Convert to 72 DPI typographic points for layout consistency
-      const ptWidth = Math.round(page.width_at(dpi) * (72 / dpi));
-      const ptHeight = Math.round(page.height_at(dpi) * (72 / dpi));
-
-      pages.push({
-        pageNumber: i + 1,
-        width: ptWidth,
-        height: ptHeight,
-        aspectRatio: ptWidth / ptHeight,
-      });
+      const w = hasValidCache ? cachedPageSizes[i].w : seedWidth;
+      const h = hasValidCache ? cachedPageSizes[i].h : seedHeight;
+      pages[i] = { pageNumber: i + 1, width: w, height: h, aspectRatio: h > 0 ? w / h : 0.77 };
     }
 
-    const cleanTitle = fileName
-      .replace(/\.[^/.]+$/, '')
-      .replace(/[-_]/g, ' ')
-      .trim();
-
-    let coverBlobUrl: string | undefined;
-    try {
-      if (pageCount > 0) {
-        coverBlobUrl = await handle.getPageThumbnail(1, 240);
-      }
-    } catch (err) {
-      console.warn('Could not extract DjVu cover thumbnail:', err);
-    }
-
+    const cleanTitle = fileName.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ').trim();
     const docId = `djvu-${fileName.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()}-${Date.now()}`;
 
     const metadata: FixedDocumentMetadata = {
@@ -193,24 +223,11 @@ export class DjvuEngine {
       pageCount,
       format: 'djvu',
       fileSizeBytes: bytes.byteLength,
-      coverBlobUrl,
     };
 
-    const outline: FixedDocumentOutline[] = pages.map((p) => ({
-      id: `djvu-p-${p.pageNumber}`,
-      title: `Page ${p.pageNumber}`,
-      pageNumber: p.pageNumber,
-    }));
-
-    const document: ParsedFixedDocument = {
-      id: docId,
-      fileName,
-      format: 'djvu',
-      metadata,
-      pages,
-      outline,
+    return {
+      handle,
+      document: { id: docId, fileName, format: 'djvu', metadata, pages, outline: [] },
     };
-
-    return { handle, document };
   }
 }

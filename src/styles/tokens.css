@@ -5,7 +5,7 @@
 
 :root {
   /* Layout dimensions */
-  --header-height: 32px;
+  --header-height: 38px;
   --footer-height: 32px;
   --drawer-width: 320px;
   --popover-max-width: 380px;

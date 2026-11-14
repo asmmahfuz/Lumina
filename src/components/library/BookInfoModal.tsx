@@ -164,6 +164,14 @@ export const BookInfoModal: React.FC<BookInfoModalProps> = ({
             }}
           >
             <div>
+              <span style={{ color: 'var(--color-text-muted)', display: 'block' }}>File Name</span>
+              <span style={{ fontWeight: 500, color: 'var(--color-text-primary)', wordBreak: 'break-all' }}>{book.fileName || book.title}</span>
+            </div>
+            <div>
+              <span style={{ color: 'var(--color-text-muted)', display: 'block' }}>File Path</span>
+              <span style={{ fontWeight: 500, color: 'var(--color-text-secondary)', wordBreak: 'break-all' }}>{book.filePath || 'Stored in local database'}</span>
+            </div>
+            <div>
               <span style={{ color: 'var(--color-text-muted)', display: 'block' }}>Publisher</span>
               <span style={{ fontWeight: 500, color: 'var(--color-text-primary)' }}>{book.publisher || 'Not Specified'}</span>
             </div>

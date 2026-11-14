@@ -21,6 +21,7 @@ interface FixedSpreadViewProps {
   pdfHandle?: PdfDocumentHandle;
   djvuHandle?: DjvuDocumentHandle;
   onPageChange: (newPage: number) => void;
+  onCoverCaptured?: (blob: Blob) => void;
 }
 
 export const FixedSpreadView: React.FC<FixedSpreadViewProps> = ({
@@ -34,6 +35,7 @@ export const FixedSpreadView: React.FC<FixedSpreadViewProps> = ({
   pdfHandle,
   djvuHandle,
   onPageChange,
+  onCoverCaptured,
 }) => {
   const totalPages = pages.length;
 
@@ -197,6 +199,7 @@ export const FixedSpreadView: React.FC<FixedSpreadViewProps> = ({
               format={format}
               pdfHandle={pdfHandle}
               djvuHandle={djvuHandle}
+              onCoverCaptured={pageNum === 1 ? onCoverCaptured : undefined}
             />
           );
         })}

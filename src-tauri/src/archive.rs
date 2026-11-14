@@ -109,3 +109,22 @@ pub fn read_archive_entry_text(file_path: String, entry_name: String) -> Result<
 
     Ok(content)
 }
+
+#[command]
+pub fn read_archive_entry_bytes(file_path: String, entry_name: String) -> Result<tauri::ipc::Response, String> {
+    if !is_safe_archive_path(&entry_name) {
+        return Err(format!("Security error: Path traversal detected for entry: {entry_name}"));
+    }
+
+    let file = File::open(&file_path).map_err(|e| format!("Failed to open file: {e}"))?;
+    let mut zip = zip::ZipArchive::new(file).map_err(|e| format!("Failed to parse zip: {e}"))?;
+
+    let mut entry = zip.by_name(&entry_name)
+        .map_err(|e| format!("Entry not found: {e}"))?;
+
+    let mut bytes = Vec::with_capacity(entry.size() as usize);
+    entry.read_to_end(&mut bytes)
+        .map_err(|e| format!("Failed to read entry bytes: {e}"))?;
+
+    Ok(tauri::ipc::Response::new(bytes))
+}

@@ -8,6 +8,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { ParsedComic, ComicSettings, DEFAULT_COMIC_SETTINGS } from '@/types/comic';
 import { ComicImageStreamer } from '@/services/comic/comicImageStreamer';
 import { Bookmark } from '@/types/book';
+import { useReaderToolbar } from '@/app/ReaderToolbarContext';
 import { ComicSpreadView } from './ComicSpreadView';
 import { ComicWebtoonView } from './ComicWebtoonView';
 import { ComicFloatingNav } from './ComicFloatingNav';
@@ -53,6 +54,7 @@ export const ComicReaderViewport: React.FC<ComicReaderViewportProps> = ({
   const [currentPageIndex, setCurrentPageIndex] = useState<number>(initialPageIndex);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
+  const { setToolbarControls } = useReaderToolbar();
 
   const totalPages = comic.pages.length;
 
@@ -113,6 +115,32 @@ export const ComicReaderViewport: React.FC<ComicReaderViewportProps> = ({
     },
     [totalPages]
   );
+
+  const handleToggleSettings = useCallback(() => {
+    setSettingsModalOpen(true);
+  }, []);
+
+  useEffect(() => {
+    setToolbarControls({
+      kind: 'comic',
+      currentPage: currentPageIndex + 1,
+      totalPages,
+      readingMode: settings.readingMode,
+      isSpread,
+      onGoToPage: handleGoToPage,
+      onToggleSettings: handleToggleSettings,
+    });
+  }, [
+    setToolbarControls,
+    currentPageIndex,
+    totalPages,
+    settings.readingMode,
+    isSpread,
+    handleGoToPage,
+    handleToggleSettings,
+  ]);
+
+  useEffect(() => () => setToolbarControls(null), [setToolbarControls]);
 
   // Notify parent of reading progress change
   useEffect(() => {
@@ -211,19 +239,17 @@ export const ComicReaderViewport: React.FC<ComicReaderViewportProps> = ({
           />
         )}
 
-        {/* 3. Floating Bottom Navigation Bar */}
+        {/* 3. Slim Floating Navigation Pill */}
         {controlsVisible && (
           <ComicFloatingNav
             currentPage={currentPageIndex + 1}
             totalPages={totalPages}
             readingMode={settings.readingMode}
-            isSpread={isSpread}
             canGoPrev={currentPageIndex > 0}
             canGoNext={currentPageIndex < totalPages - 1}
             onPrev={handlePrev}
             onNext={handleNext}
             onGoToPage={handleGoToPage}
-            onToggleSettings={() => setSettingsModalOpen(true)}
           />
         )}
       </div>

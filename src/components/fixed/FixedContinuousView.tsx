@@ -19,6 +19,7 @@ interface FixedContinuousViewProps {
   pdfHandle?: PdfDocumentHandle;
   djvuHandle?: DjvuDocumentHandle;
   onPageChange: (newPage: number) => void;
+  onCoverCaptured?: (blob: Blob) => void;
 }
 
 export const FixedContinuousView: React.FC<FixedContinuousViewProps> = ({
@@ -31,6 +32,7 @@ export const FixedContinuousView: React.FC<FixedContinuousViewProps> = ({
   pdfHandle,
   djvuHandle,
   onPageChange,
+  onCoverCaptured,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const isProgrammaticScrollRef = useRef<boolean>(false);
@@ -81,7 +83,11 @@ export const FixedContinuousView: React.FC<FixedContinuousViewProps> = ({
     // Only scroll if not already near view
     if (currentDist > 80) {
       isProgrammaticScrollRef.current = true;
-      targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const scrollDelta = targetRect.top - containerRect.top;
+      container.scrollTo({
+        top: Math.max(0, container.scrollTop + scrollDelta - 24),
+        behavior: 'smooth',
+      });
       const timer = setTimeout(() => {
         isProgrammaticScrollRef.current = false;
       }, 500);
@@ -117,6 +123,7 @@ export const FixedContinuousView: React.FC<FixedContinuousViewProps> = ({
           format={format}
           pdfHandle={pdfHandle}
           djvuHandle={djvuHandle}
+          onCoverCaptured={page.pageNumber === 1 ? onCoverCaptured : undefined}
         />
       ))}
     </div>

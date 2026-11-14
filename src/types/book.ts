@@ -66,6 +66,10 @@ export interface BookMetadata {
   importedAt: number;
   lastReadAt?: number;
   progress?: ReadingProgress;
+  fileName: string;
+  filePath?: string;
+  fileHandle?: FileSystemFileHandle;
+  cachedPageSizes?: Array<{ w: number; h: number }>;
 }
 
 export interface TableOfContentsItem {
@@ -93,11 +97,12 @@ export interface ReaderSettings {
   theme: ReadingTheme;
   typography: ReaderTypography;
   zenModeOnIdle: boolean;
+  navPosition?: 'bottom' | 'right';
 }
 
 export const DEFAULT_TYPOGRAPHY: ReaderTypography = {
   fontFamily: 'serif',
-  fontSize: 12,
+  fontSize: 14,
   lineHeight: 1.65,
   marginPercent: 15,
   textAlign: 'justify',
@@ -109,4 +114,5 @@ export const DEFAULT_READER_SETTINGS: ReaderSettings = {
   theme: 'oled',
   typography: DEFAULT_TYPOGRAPHY,
   zenModeOnIdle: true,
+  navPosition: 'bottom',
 };

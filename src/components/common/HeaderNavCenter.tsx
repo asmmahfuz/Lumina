@@ -5,6 +5,8 @@
 
 import React from 'react';
 import { Search, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { useReaderToolbar } from '@/app/ReaderToolbarContext';
+import { HeaderReaderTools } from './HeaderReaderTools';
 
 interface HeaderNavCenterProps {
   isReading: boolean;
@@ -13,6 +15,7 @@ interface HeaderNavCenterProps {
   onNextChapter?: () => void;
   searchQuery: string;
   onSearchChange: (query: string) => void;
+  onOpenTypography?: () => void;
 }
 
 export const HeaderNavCenter: React.FC<HeaderNavCenterProps> = ({
@@ -22,7 +25,10 @@ export const HeaderNavCenter: React.FC<HeaderNavCenterProps> = ({
   onNextChapter,
   searchQuery,
   onSearchChange,
+  onOpenTypography,
 }) => {
+  const { toolbarControls } = useReaderToolbar();
+
   return (
     <div
       style={{
@@ -34,7 +40,9 @@ export const HeaderNavCenter: React.FC<HeaderNavCenterProps> = ({
         minWidth: 0,
       }}
     >
-      {isReading && readingChapterInfo ? (
+      {isReading && toolbarControls ? (
+        <HeaderReaderTools controls={toolbarControls} onOpenTypography={onOpenTypography} />
+      ) : isReading && readingChapterInfo ? (
         <div
           style={{
             display: 'flex',

@@ -6,6 +6,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useReaderContext } from '@/app/Providers';
+import { useReaderToolbar } from '@/app/ReaderToolbarContext';
 import { ParsedEpubBook } from '@/types/epub';
 import { Bookmark, Annotation } from '@/types/book';
 import { SafeArchiveReader } from '@/services/archive/safeDecompressor';
@@ -69,6 +70,7 @@ export const ReaderViewport: React.FC<ReaderViewportProps> = ({
   onDeleteAnnotation,
 }) => {
   const { theme, typography } = useReaderContext();
+  const { setToolbarControls } = useReaderToolbar();
   const [srcDoc, setSrcDoc] = useState<string>('');
   const [loadingChapter, setLoadingChapter] = useState<boolean>(false);
   const [internalSidebarTab, setInternalSidebarTab] = useState<SidebarTab>('toc');
@@ -245,12 +247,30 @@ export const ReaderViewport: React.FC<ReaderViewportProps> = ({
     attachIframeEvents(doc);
   };
 
+  const chapterFraction = totalPages > 1 ? currentPage / (totalPages - 1) : 0;
+  const overallProgressPercent = Math.min(100, Math.round(((currentSpineIndex + chapterFraction) / totalSpineItems) * 100));
+
+  useEffect(() => {
+    if (!book || !archive) {
+      setToolbarControls(null);
+      return;
+    }
+    setToolbarControls({
+      kind: 'epub',
+      currentChapter: currentSpineIndex + 1,
+      totalChapters: totalSpineItems,
+      progressPercent: overallProgressPercent,
+      chapterTitle: currentSpineItem?.idref,
+      onPrevChapter: () => onSetSpineIndex(Math.max(0, currentSpineIndex - 1)),
+      onNextChapter: () => onSetSpineIndex(Math.min(totalSpineItems - 1, currentSpineIndex + 1)),
+    });
+  }, [book, archive, setToolbarControls, currentSpineIndex, totalSpineItems, overallProgressPercent, currentSpineItem?.idref, onSetSpineIndex]);
+
+  useEffect(() => () => setToolbarControls(null), [setToolbarControls]);
+
   if (!book || !archive) {
     return <EmptyReaderState onLoadSampleBook={onLoadSampleBook} onBackToLibrary={onBackToLibrary} />;
   }
-
-  const chapterFraction = totalPages > 1 ? currentPage / (totalPages - 1) : 0;
-  const overallProgressPercent = Math.min(100, Math.round(((currentSpineIndex + chapterFraction) / totalSpineItems) * 100));
 
   return (
     <div ref={containerRef} style={{ flex: 1, display: 'flex', flexDirection: 'row', height: '100%', position: 'relative', overflow: 'hidden' }}>
@@ -314,9 +334,9 @@ export const ReaderViewport: React.FC<ReaderViewportProps> = ({
 
           <FloatingChapterNav
             canGoPrev={canGoPrev} canGoNext={canGoNext} onPrev={handlePrev} onNext={handleNext}
-            currentPage={currentPage + 1} totalPages={totalPages} isTwoPage={isTwoPage} isPaginated={isPaginated}
+            currentPage={currentPage + 1} totalPages={totalPages} isPaginated={isPaginated}
             isChapterBoundaryPrev={isChapterBoundaryPrev} isChapterBoundaryNext={isChapterBoundaryNext}
-            progressPercent={overallProgressPercent} chapterTitle={currentSpineItem?.idref}
+            progressPercent={overallProgressPercent}
           />
         </div>
       </div>

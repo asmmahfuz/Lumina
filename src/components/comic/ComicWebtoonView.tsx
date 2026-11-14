@@ -28,29 +28,45 @@ export const ComicWebtoonView: React.FC<ComicWebtoonViewProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [loadedUrls, setLoadedUrls] = useState<Record<number, string>>({});
+  const requestedRef = useRef<Set<number>>(new Set());
   const pageRefs = useRef<(HTMLDivElement | null)[]>([]);
 
-  // Virtualized IntersectionObserver for loading page images
+  // Virtualized IntersectionObserver for loading page images without observer recreation churn
   useEffect(() => {
+    requestedRef.current.clear();
+    let mounted = true;
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
+          const index = Number(entry.target.getAttribute('data-index'));
+          if (isNaN(index)) return;
           if (entry.isIntersecting) {
-            const index = Number(entry.target.getAttribute('data-index'));
-            if (!isNaN(index) && !loadedUrls[index]) {
+            if (!requestedRef.current.has(index)) {
+              requestedRef.current.add(index);
               streamer
                 .getPageObjectUrl(index)
                 .then((url) => {
-                  setLoadedUrls((prev) => ({ ...prev, [index]: url }));
+                  if (mounted) setLoadedUrls((prev) => ({ ...prev, [index]: url }));
                 })
                 .catch(console.warn);
+            }
+          } else {
+            const rect = entry.boundingClientRect;
+            if (rect.bottom < -1200 || rect.top > window.innerHeight + 1200) {
+              requestedRef.current.delete(index);
+              setLoadedUrls((prev) => {
+                if (!(index in prev)) return prev;
+                const next = { ...prev };
+                delete next[index];
+                return next;
+              });
             }
           }
         });
       },
       {
         root: containerRef.current,
-        rootMargin: '600px 0px 600px 0px', // Preload 600px before appearing
+        rootMargin: '450px 0px 450px 0px',
         threshold: 0.01,
       }
     );
@@ -59,8 +75,11 @@ export const ComicWebtoonView: React.FC<ComicWebtoonViewProps> = ({
       if (el) observer.observe(el);
     });
 
-    return () => observer.disconnect();
-  }, [pages, streamer, loadedUrls]);
+    return () => {
+      mounted = false;
+      observer.disconnect();
+    };
+  }, [pages, streamer]);
 
   // Track active page based on scroll position in viewport center
   const handleScroll = useCallback(() => {
@@ -86,10 +105,13 @@ export const ComicWebtoonView: React.FC<ComicWebtoonViewProps> = ({
 
   // Initial scroll to resumed page
   useEffect(() => {
-    if (initialPageIndex > 0 && pageRefs.current[initialPageIndex]) {
+    if (initialPageIndex > 0 && pageRefs.current[initialPageIndex] && containerRef.current) {
       const target = pageRefs.current[initialPageIndex];
+      const container = containerRef.current;
       setTimeout(() => {
-        target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (target && container) {
+          container.scrollTo({ top: Math.max(0, target.offsetTop - 16), behavior: 'smooth' });
+        }
       }, 150);
     }
   }, [initialPageIndex]);
@@ -155,10 +177,11 @@ export const ComicWebtoonView: React.FC<ComicWebtoonViewProps> = ({
                   alt={`Page ${index + 1}`}
                   loading="lazy"
                   style={{
-                    width: '100%',
+                    maxWidth: '100%',
+                    width: 'auto',
                     height: 'auto',
                     display: 'block',
-                    margin: 0,
+                    margin: '0 auto',
                     padding: 0,
                   }}
                 />

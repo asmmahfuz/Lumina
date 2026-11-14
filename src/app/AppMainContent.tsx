@@ -24,6 +24,7 @@ interface AppMainContentProps {
   activeView: string;
   // Fixed Reader (PDF/DJVU)
   fixedDoc: ParsedFixedDocument | null;
+  fixedBookId?: string | null;
   fixedPageNumber: number;
   readingPdfHandle: PdfDocumentHandle | null;
   readingDjvuHandle: DjvuDocumentHandle | null;
@@ -69,6 +70,7 @@ interface AppMainContentProps {
 export const AppMainContent: React.FC<AppMainContentProps> = ({
   activeView,
   fixedDoc,
+  fixedBookId,
   fixedPageNumber,
   readingPdfHandle,
   readingDjvuHandle,
@@ -108,10 +110,11 @@ export const AppMainContent: React.FC<AppMainContentProps> = ({
   onOpenStats,
 }) => {
   return (
-    <main style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
+    <main style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden', position: 'relative' }}>
       {activeView === 'fixed' && fixedDoc ? (
         <FixedReaderViewport
           document={fixedDoc}
+          bookId={fixedBookId}
           initialPageNumber={fixedPageNumber}
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen((prev) => !prev)}

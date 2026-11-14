@@ -13,6 +13,8 @@ import {
 import { Bookmark } from '@/types/book';
 import { PdfDocumentHandle } from '@/services/pdf/pdfEngine';
 import { DjvuDocumentHandle } from '@/services/djvu/djvuEngine';
+import { useReaderToolbar } from '@/app/ReaderToolbarContext';
+import { localDb } from '@/services/storage/indexedDb';
 import { FixedSidebar } from './FixedSidebar';
 import { FixedContinuousView } from './FixedContinuousView';
 import { FixedSpreadView } from './FixedSpreadView';
@@ -20,6 +22,7 @@ import { FixedFloatingNav } from './FixedFloatingNav';
 
 interface FixedReaderViewportProps {
   document: ParsedFixedDocument;
+  bookId?: string | null;
   initialPageNumber?: number;
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
@@ -33,6 +36,7 @@ interface FixedReaderViewportProps {
 
 export const FixedReaderViewport: React.FC<FixedReaderViewportProps> = ({
   document,
+  bookId,
   initialPageNumber = 1,
   sidebarOpen,
   onToggleSidebar,
@@ -44,8 +48,31 @@ export const FixedReaderViewport: React.FC<FixedReaderViewportProps> = ({
   djvuHandle,
 }) => {
   const [currentPage, setCurrentPage] = useState<number>(initialPageNumber);
-  const [settings, setSettings] = useState<FixedSettings>(DEFAULT_FIXED_SETTINGS);
+  const [settings, setSettings] = useState<FixedSettings>(() => ({
+    ...DEFAULT_FIXED_SETTINGS,
+    showTextLayer: document.hasTextLayer ?? DEFAULT_FIXED_SETTINGS.showTextLayer,
+  }));
   const viewportRef = useRef<HTMLDivElement>(null);
+  const { setToolbarControls } = useReaderToolbar();
+
+  useEffect(() => {
+    setCurrentPage(initialPageNumber);
+    setSettings((prev) => ({
+      ...prev,
+      showTextLayer: document.hasTextLayer ?? false,
+    }));
+  }, [document, initialPageNumber]);
+
+  const handleCoverCaptured = useCallback(
+    (blob: Blob) => {
+      if (!bookId) return;
+      blob
+        .arrayBuffer()
+        .then((buf) => localDb.saveBookCover(bookId, buf))
+        .catch(() => {});
+    },
+    [bookId]
+  );
 
   const totalPages = document.pages.length;
   const currentPageInfo = document.pages[currentPage - 1] || document.pages[0];
@@ -108,31 +135,84 @@ export const FixedReaderViewport: React.FC<FixedReaderViewportProps> = ({
     [totalPages, onPageChange]
   );
 
-  // 3. Zoom Actions
-  const handleZoomIn = () => {
+  // 3. Zoom & Display Actions
+  const handleZoomIn = useCallback(() => {
     setSettings((prev) => ({
       ...prev,
       fitMode: 'custom',
       scale: Math.min(Math.round((prev.scale + 0.15) * 100) / 100, 3.5),
     }));
-  };
+  }, []);
 
-  const handleZoomOut = () => {
+  const handleZoomOut = useCallback(() => {
     setSettings((prev) => ({
       ...prev,
       fitMode: 'custom',
       scale: Math.max(Math.round((prev.scale - 0.15) * 100) / 100, 0.3),
     }));
-  };
+  }, []);
 
-  const handleResetZoom = () => {
+  const handleResetZoom = useCallback(() => {
     setSettings((prev) => ({ ...prev, fitMode: 'original', scale: 1.0 }));
-  };
+  }, []);
 
-  const handleSetFitMode = (mode: FixedFitMode) => {
-    const newScale = calculateFitScale(mode);
-    setSettings((prev) => ({ ...prev, fitMode: mode, scale: newScale }));
-  };
+  const handleSetFitMode = useCallback(
+    (mode: FixedFitMode) => {
+      const newScale = calculateFitScale(mode);
+      setSettings((prev) => ({ ...prev, fitMode: mode, scale: newScale }));
+    },
+    [calculateFitScale]
+  );
+
+  const handleToggleReadingMode = useCallback(() => {
+    setSettings((prev) => ({
+      ...prev,
+      readingMode: prev.readingMode === 'continuous' ? 'single' : 'continuous',
+    }));
+  }, []);
+
+  const handleToggleTextLayer = useCallback(() => {
+    setSettings((prev) => ({
+      ...prev,
+      showTextLayer: !prev.showTextLayer,
+    }));
+  }, []);
+
+  useEffect(() => {
+    setToolbarControls({
+      kind: 'fixed',
+      currentPage,
+      totalPages,
+      scale: settings.scale,
+      fitMode: settings.fitMode,
+      readingMode: settings.readingMode,
+      showTextLayer: settings.showTextLayer,
+      onPageChange: handlePageSelect,
+      onZoomIn: handleZoomIn,
+      onZoomOut: handleZoomOut,
+      onResetZoom: handleResetZoom,
+      onSetFitMode: handleSetFitMode,
+      onToggleReadingMode: handleToggleReadingMode,
+      onToggleTextLayer: handleToggleTextLayer,
+    });
+  }, [
+    setToolbarControls,
+    currentPage,
+    totalPages,
+    settings.scale,
+    settings.fitMode,
+    settings.readingMode,
+    settings.showTextLayer,
+    handlePageSelect,
+    handleZoomIn,
+    handleZoomOut,
+    handleResetZoom,
+    handleSetFitMode,
+    handleToggleReadingMode,
+    handleToggleTextLayer,
+  ]);
+
+  useEffect(() => () => setToolbarControls(null), [setToolbarControls]);
 
   // 4. Keyboard Shortcuts
   useEffect(() => {
@@ -212,6 +292,7 @@ export const FixedReaderViewport: React.FC<FixedReaderViewportProps> = ({
             pdfHandle={pdfHandle}
             djvuHandle={djvuHandle}
             onPageChange={handlePageSelect}
+            onCoverCaptured={bookId ? handleCoverCaptured : undefined}
           />
         ) : (
           <FixedSpreadView
@@ -225,34 +306,15 @@ export const FixedReaderViewport: React.FC<FixedReaderViewportProps> = ({
             pdfHandle={pdfHandle}
             djvuHandle={djvuHandle}
             onPageChange={handlePageSelect}
+            onCoverCaptured={bookId ? handleCoverCaptured : undefined}
           />
         )}
 
-        {/* 3. Floating Bottom Navigation & Zoom Pill */}
+        {/* 3. Slim Floating Navigation Pill */}
         <FixedFloatingNav
           currentPage={currentPage}
           totalPages={totalPages}
-          scale={settings.scale}
-          fitMode={settings.fitMode}
-          readingMode={settings.readingMode}
-          showTextLayer={settings.showTextLayer}
           onPageChange={handlePageSelect}
-          onZoomIn={handleZoomIn}
-          onZoomOut={handleZoomOut}
-          onResetZoom={handleResetZoom}
-          onSetFitMode={handleSetFitMode}
-          onToggleReadingMode={() =>
-            setSettings((prev) => ({
-              ...prev,
-              readingMode: prev.readingMode === 'continuous' ? 'single' : 'continuous',
-            }))
-          }
-          onToggleTextLayer={() =>
-            setSettings((prev) => ({
-              ...prev,
-              showTextLayer: !prev.showTextLayer,
-            }))
-          }
         />
       </div>
     </div>

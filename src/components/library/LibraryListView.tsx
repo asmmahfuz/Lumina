@@ -137,6 +137,19 @@ export const LibraryListView: React.FC<LibraryListViewProps> = ({
                         >
                           {book.creator || 'Unknown Author'}
                         </div>
+                        <div
+                          style={{
+                            fontSize: '10px',
+                            color: 'var(--color-text-muted)',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            maxWidth: '300px',
+                          }}
+                          title={book.filePath || book.fileName || book.title}
+                        >
+                          {book.filePath ? `📁 ${book.filePath}` : (book.fileName || book.title)}
+                        </div>
                       </div>
                     </div>
                   </td>

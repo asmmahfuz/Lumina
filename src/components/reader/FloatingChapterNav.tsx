@@ -1,11 +1,18 @@
 /**
- * Lumina Reader - Floating Chapter & Page Navigation
- * Floating controls for smooth page & chapter turning with a central
- * glassmorphic page & reading progress badge, strictly preserving the single-bar rule.
+ * Lumina Reader - Minimal Floating Chapter & Page Navigation Pill
+ * Displays only `< current / total >` supporting Bottom (horizontal) and Right (vertical) docking.
  */
 
 import React from 'react';
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Clock } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  ChevronDown,
+  ChevronsLeft,
+  ChevronsRight,
+} from 'lucide-react';
+import { useReaderContext } from '@/app/Providers';
 
 interface FloatingChapterNavProps {
   canGoPrev: boolean;
@@ -14,14 +21,10 @@ interface FloatingChapterNavProps {
   onNext: () => void;
   currentPage?: number;
   totalPages?: number;
-  isTwoPage?: boolean;
   isPaginated?: boolean;
   isChapterBoundaryPrev?: boolean;
   isChapterBoundaryNext?: boolean;
   progressPercent?: number;
-  chapterTitle?: string;
-  timeRemaining?: string;
-  onOpenStats?: () => void;
 }
 
 export const FloatingChapterNav: React.FC<FloatingChapterNavProps> = ({
@@ -31,186 +34,102 @@ export const FloatingChapterNav: React.FC<FloatingChapterNavProps> = ({
   onNext,
   currentPage = 1,
   totalPages = 1,
-  isTwoPage = false,
   isPaginated = true,
   isChapterBoundaryPrev = false,
   isChapterBoundaryNext = false,
   progressPercent,
-  chapterTitle,
-  timeRemaining,
-  onOpenStats,
 }) => {
-  const pageLabel = isPaginated
-    ? isTwoPage && totalPages > 1
-      ? `Pages ${currentPage}–${Math.min(currentPage + 1, totalPages)} of ${totalPages}`
-      : `Page ${currentPage} of ${totalPages}`
-    : `${progressPercent !== undefined ? `${progressPercent}%` : 'Scroll'}`;
+  const { settings } = useReaderContext();
+  const isVertical = settings.navPosition === 'right';
+
+  const iconBtnStyle: React.CSSProperties = {
+    width: '20px',
+    height: '20px',
+    padding: 0,
+    borderRadius: 'var(--radius-full)',
+    border: 'none',
+    backgroundColor: 'transparent',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  };
+
+  const PrevIcon = isVertical ? ChevronUp : isChapterBoundaryPrev ? ChevronsLeft : ChevronLeft;
+  const NextIcon = isVertical ? ChevronDown : isChapterBoundaryNext ? ChevronsRight : ChevronRight;
 
   return (
-    <>
-      {/* Floating Previous Button */}
-      {canGoPrev && (
-        <button
-          onClick={onPrev}
-          title={
-            isChapterBoundaryPrev
-              ? 'Previous Chapter (Left Arrow, [, or Page Up)'
-              : 'Previous Page (Left Arrow, K, or Page Up)'
-          }
-          style={{
-            position: 'absolute',
-            bottom: '20px',
-            left: '20px',
-            height: '32px',
-            padding: '0 12px 0 8px',
-            borderRadius: 'var(--radius-full)',
-            backgroundColor: 'var(--color-surface)',
-            border: '1px solid var(--color-border)',
-            boxShadow: 'var(--shadow-md)',
-            backdropFilter: 'blur(10px)',
-            color: 'var(--color-text-primary)',
-            fontSize: '11px',
-            fontWeight: 500,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '4px',
-            cursor: 'pointer',
-            zIndex: 10,
-            opacity: 0.9,
-            transition: 'all 180ms ease',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.opacity = '1';
-            e.currentTarget.style.backgroundColor = 'var(--color-surface-hover)';
-            e.currentTarget.style.transform = 'translateY(-1px)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.opacity = '0.9';
-            e.currentTarget.style.backgroundColor = 'var(--color-surface)';
-            e.currentTarget.style.transform = 'translateY(0)';
-          }}
-        >
-          {isChapterBoundaryPrev ? <ChevronsLeft size={14} /> : <ChevronLeft size={14} />}
-          <span>{isChapterBoundaryPrev ? 'Prev Ch.' : 'Prev'}</span>
-        </button>
-      )}
-
-      {/* Center Floating Page & Progress Pill */}
-      <div
+    <nav
+      className="glass-panel"
+      style={{
+        position: 'absolute',
+        ...(isVertical
+          ? { right: '10px', top: '50%', transform: 'translateY(-50%)', flexDirection: 'column', padding: '4px 3px' }
+          : { bottom: '10px', left: '50%', transform: 'translateX(-50%)', flexDirection: 'row', padding: '2px 6px' }),
+        borderRadius: 'var(--radius-full)',
+        backgroundColor: 'var(--color-surface)',
+        border: '1px solid var(--color-border)',
+        boxShadow: 'var(--shadow-md)',
+        backdropFilter: 'blur(12px)',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '3px',
+        fontSize: '10.5px',
+        color: 'var(--color-text-primary)',
+        zIndex: 10,
+        opacity: 0.94,
+        userSelect: 'none',
+      }}
+    >
+      <button
+        onClick={onPrev}
+        disabled={!canGoPrev}
+        title={isChapterBoundaryPrev ? 'Previous Chapter' : 'Previous Page'}
         style={{
-          position: 'absolute',
-          bottom: '20px',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          height: '28px',
-          padding: '0 12px',
-          borderRadius: 'var(--radius-full)',
-          backgroundColor: 'var(--color-surface)',
-          border: '1px solid var(--color-border)',
-          boxShadow: 'var(--shadow-sm)',
-          backdropFilter: 'blur(12px)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          fontSize: '11px',
-          color: 'var(--color-text-secondary)',
-          pointerEvents: onOpenStats ? 'auto' : 'none',
-          zIndex: 10,
-          opacity: 0.92,
-          userSelect: 'none',
+          ...iconBtnStyle,
+          color: canGoPrev ? 'var(--color-text-primary)' : 'var(--color-text-muted)',
+          cursor: canGoPrev ? 'pointer' : 'not-allowed',
         }}
       >
-        <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{pageLabel}</span>
-        {progressPercent !== undefined && isPaginated && (
+        <PrevIcon size={13} />
+      </button>
+
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: isVertical ? 'column' : 'row',
+          alignItems: 'center',
+          gap: isVertical ? '0px' : '3px',
+          padding: isVertical ? '3px 2px' : '0 6px',
+          fontWeight: 600,
+          lineHeight: 1.15,
+        }}
+      >
+        {isPaginated ? (
           <>
-            <span style={{ opacity: 0.35 }}>•</span>
-            <span style={{ color: 'var(--color-accent)', fontWeight: 600 }}>{progressPercent}%</span>
-          </>
-        )}
-        {timeRemaining && (
-          <>
-            <span style={{ opacity: 0.35 }}>•</span>
-            <span
-              onClick={onOpenStats}
-              title="Estimated reading time remaining (click for Insights)"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '3px',
-                color: 'var(--color-text-secondary)',
-                cursor: onOpenStats ? 'pointer' : 'default',
-              }}
-            >
-              <Clock size={10} style={{ opacity: 0.8 }} />
-              <span>{timeRemaining}</span>
+            <span>{currentPage}</span>
+            {!isVertical && <span style={{ color: 'var(--color-text-muted)' }}>/</span>}
+            <span style={{ color: 'var(--color-text-muted)', fontSize: isVertical ? '9px' : '10.5px' }}>
+              {totalPages}
             </span>
           </>
-        )}
-        {chapterTitle && (
-          <>
-            <span style={{ opacity: 0.35 }}>•</span>
-            <span
-              style={{
-                maxWidth: '140px',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                fontSize: '10px',
-              }}
-              title={chapterTitle}
-            >
-              {chapterTitle}
-            </span>
-          </>
+        ) : (
+          <span>{progressPercent !== undefined ? `${progressPercent}%` : 'Scroll'}</span>
         )}
       </div>
 
-      {/* Floating Next Button */}
-      {canGoNext && (
-        <button
-          onClick={onNext}
-          title={
-            isChapterBoundaryNext
-              ? 'Next Chapter (Right Arrow, ], Space, or Page Down)'
-              : 'Next Page (Right Arrow, J, Space, or Page Down)'
-          }
-          style={{
-            position: 'absolute',
-            bottom: '20px',
-            right: '20px',
-            height: '32px',
-            padding: '0 8px 0 12px',
-            borderRadius: 'var(--radius-full)',
-            backgroundColor: 'var(--color-surface)',
-            border: '1px solid var(--color-border)',
-            boxShadow: 'var(--shadow-md)',
-            backdropFilter: 'blur(10px)',
-            color: 'var(--color-text-primary)',
-            fontSize: '11px',
-            fontWeight: 500,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '4px',
-            cursor: 'pointer',
-            zIndex: 10,
-            opacity: 0.9,
-            transition: 'all 180ms ease',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.opacity = '1';
-            e.currentTarget.style.backgroundColor = 'var(--color-surface-hover)';
-            e.currentTarget.style.transform = 'translateY(-1px)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.opacity = '0.9';
-            e.currentTarget.style.backgroundColor = 'var(--color-surface)';
-            e.currentTarget.style.transform = 'translateY(0)';
-          }}
-        >
-          <span>{isChapterBoundaryNext ? 'Next Ch.' : 'Next'}</span>
-          {isChapterBoundaryNext ? <ChevronsRight size={14} /> : <ChevronRight size={14} />}
-        </button>
-      )}
-    </>
+      <button
+        onClick={onNext}
+        disabled={!canGoNext}
+        title={isChapterBoundaryNext ? 'Next Chapter' : 'Next Page'}
+        style={{
+          ...iconBtnStyle,
+          color: canGoNext ? 'var(--color-text-primary)' : 'var(--color-text-muted)',
+          cursor: canGoNext ? 'pointer' : 'not-allowed',
+        }}
+      >
+        <NextIcon size={13} />
+      </button>
+    </nav>
   );
 };

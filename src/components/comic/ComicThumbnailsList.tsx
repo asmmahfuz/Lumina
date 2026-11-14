@@ -1,9 +1,9 @@
 /**
  * Lumina Reader - Comic Thumbnails Grid
- * Visual grid of comic and manga page thumbnails with lazy image resolution and active page indicator
+ * Viewport-virtualized comic thumbnails with micro-scaled image reuse and zero observer churn.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ComicPage } from '@/types/comic';
 import { ComicImageStreamer } from '@/services/comic/comicImageStreamer';
 
@@ -20,23 +20,60 @@ export const ComicThumbnailsList: React.FC<ComicThumbnailsListProps> = ({
   currentPageIndex,
   onSelectPage,
 }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const itemRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const requestedRef = useRef<Set<number>>(new Set());
   const [thumbnails, setThumbnails] = useState<Record<number, string>>({});
 
   useEffect(() => {
-    pages.forEach((page) => {
-      if (!thumbnails[page.index]) {
-        streamer
-          .getPageObjectUrl(page.index)
-          .then((url) => {
-            setThumbnails((prev) => ({ ...prev, [page.index]: url }));
-          })
-          .catch(() => {});
+    requestedRef.current.clear();
+    const seeded: Record<number, string> = {};
+    for (const p of pages) {
+      const cached = streamer.getCachedThumbnailUrl(p.index);
+      if (cached) {
+        seeded[p.index] = cached;
+        requestedRef.current.add(p.index);
       }
-    });
-  }, [pages, streamer, thumbnails]);
+    }
+    setThumbnails(seeded);
+  }, [pages, streamer]);
+
+  useEffect(() => {
+    const root = containerRef.current;
+    if (!root) return;
+
+    let mounted = true;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const idx = Number(entry.target.getAttribute('data-thumb-index'));
+          if (isNaN(idx) || requestedRef.current.has(idx)) continue;
+
+          requestedRef.current.add(idx);
+          streamer
+            .getPageThumbnailUrl(idx, 140)
+            .then((url) => {
+              if (mounted && url) {
+                setThumbnails((prev) => ({ ...prev, [idx]: url }));
+              }
+            })
+            .catch(() => {});
+        }
+      },
+      { root, rootMargin: '120px 0px', threshold: 0.01 }
+    );
+
+    itemRefs.current.forEach((el) => observer.observe(el));
+    return () => {
+      mounted = false;
+      observer.disconnect();
+    };
+  }, [pages, streamer]);
 
   return (
     <div
+      ref={containerRef}
       style={{
         flex: 1,
         overflowY: 'auto',
@@ -54,6 +91,11 @@ export const ComicThumbnailsList: React.FC<ComicThumbnailsListProps> = ({
         return (
           <div
             key={page.path}
+            ref={(el) => {
+              if (el) itemRefs.current.set(page.index, el);
+              else itemRefs.current.delete(page.index);
+            }}
+            data-thumb-index={page.index}
             onClick={() => onSelectPage(page.index)}
             style={{
               display: 'flex',

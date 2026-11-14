@@ -20,7 +20,7 @@
         "minHeight": 600,
         "resizable": true,
         "fullscreen": false,
-        "decorations": true,
+        "decorations": false,
         "center": true
       }
     ],
@@ -30,6 +30,66 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all"
+    "targets": "all",
+    "shortDescription": "Universal Digital Reading Suite",
+    "longDescription": "Lumina Reader is a fast, lightweight offline reader for EPUB, PDF, DJVU, Comics, Kindle, FictionBook, Markdown, and Text files.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "fileAssociations": [
+      {
+        "ext": ["epub"],
+        "name": "EPUB Book",
+        "description": "EPUB Electronic Publication",
+        "role": "Viewer",
+        "mimeType": "application/epub+zip"
+      },
+      {
+        "ext": ["pdf"],
+        "name": "PDF Document",
+        "description": "Portable Document Format",
+        "role": "Viewer",
+        "mimeType": "application/pdf"
+      },
+      {
+        "ext": ["djvu"],
+        "name": "DjVu Document",
+        "description": "DjVu Digital Document",
+        "role": "Viewer",
+        "mimeType": "image/vnd.djvu"
+      },
+      {
+        "ext": ["cbz", "cbr", "cbt", "cb7"],
+        "name": "Comic Book Archive",
+        "description": "Comic and Manga Archive",
+        "role": "Viewer",
+        "mimeType": "application/vnd.comicbook+zip"
+      },
+      {
+        "ext": ["mobi", "azw", "azw3"],
+        "name": "Kindle E-Book",
+        "description": "Kindle E-Book Document",
+        "role": "Viewer",
+        "mimeType": "application/x-mobipocket-ebook"
+      },
+      {
+        "ext": ["fb2"],
+        "name": "FictionBook",
+        "description": "FictionBook XML E-Book",
+        "role": "Viewer",
+        "mimeType": "application/x-fictionbook+xml"
+      },
+      {
+        "ext": ["md", "txt"],
+        "name": "Text Document",
+        "description": "Markdown / Plain Text Document",
+        "role": "Viewer",
+        "mimeType": "text/plain"
+      }
+    ]
   }
 }

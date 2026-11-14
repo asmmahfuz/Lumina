@@ -1,14 +1,12 @@
 /**
  * Lumina Reader - Fixed-Layout Documents Sidebar Rail
- * Quad-tab left dock housing Thumbnails, Document Outline, Bookmarks, and Metadata Inspector
+ * Dual-tab left dock housing Thumbnails and Bookmarks
  */
 
 import React, { useState } from 'react';
 import {
   LayoutGrid,
-  ListTree,
   Bookmark as BookmarkIcon,
-  Info,
   X,
   Trash2,
   Plus,
@@ -18,9 +16,8 @@ import { Bookmark } from '@/types/book';
 import { PdfDocumentHandle } from '@/services/pdf/pdfEngine';
 import { DjvuDocumentHandle } from '@/services/djvu/djvuEngine';
 import { FixedThumbnailsList } from './FixedThumbnailsList';
-import { FixedOutlineTree } from './FixedOutlineTree';
 
-export type FixedSidebarTab = 'thumbnails' | 'outline' | 'bookmarks' | 'info';
+export type FixedSidebarTab = 'thumbnails' | 'bookmarks';
 
 interface FixedSidebarProps {
   document: ParsedFixedDocument;
@@ -105,7 +102,7 @@ export const FixedSidebar: React.FC<FixedSidebarProps> = ({
         </button>
       </div>
 
-      {/* 2. Quad-Tab Navigation Rail */}
+      {/* 2. Tab Navigation Rail */}
       <div
         style={{
           display: 'flex',
@@ -131,23 +128,6 @@ export const FixedSidebar: React.FC<FixedSidebarProps> = ({
         </button>
 
         <button
-          onClick={() => setActiveTab('outline')}
-          style={{
-            flex: 1,
-            height: '32px',
-            fontSize: '11px',
-            fontWeight: activeTab === 'outline' ? 600 : 500,
-            color: activeTab === 'outline' ? 'var(--color-accent)' : 'var(--color-text-secondary)',
-            borderBottom: activeTab === 'outline' ? '2px solid var(--color-accent)' : 'none',
-            borderRadius: 0,
-            gap: '4px',
-          }}
-        >
-          <ListTree size={12} />
-          <span>Outline</span>
-        </button>
-
-        <button
           onClick={() => setActiveTab('bookmarks')}
           style={{
             flex: 1,
@@ -163,23 +143,6 @@ export const FixedSidebar: React.FC<FixedSidebarProps> = ({
           <BookmarkIcon size={12} />
           <span>Marks</span>
         </button>
-
-        <button
-          onClick={() => setActiveTab('info')}
-          style={{
-            flex: 1,
-            height: '32px',
-            fontSize: '11px',
-            fontWeight: activeTab === 'info' ? 600 : 500,
-            color: activeTab === 'info' ? 'var(--color-accent)' : 'var(--color-text-secondary)',
-            borderBottom: activeTab === 'info' ? '2px solid var(--color-accent)' : 'none',
-            borderRadius: 0,
-            gap: '4px',
-          }}
-        >
-          <Info size={12} />
-          <span>Info</span>
-        </button>
       </div>
 
       {/* 3. Tab Body Container */}
@@ -193,13 +156,7 @@ export const FixedSidebar: React.FC<FixedSidebarProps> = ({
             djvuHandle={djvuHandle}
             onSelectPage={onSelectPage}
           />
-        ) : activeTab === 'outline' ? (
-          <FixedOutlineTree
-            outline={document.outline}
-            currentPage={currentPage}
-            onSelectPage={onSelectPage}
-          />
-        ) : activeTab === 'bookmarks' ? (
+        ) : (
           <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-secondary)' }}>
@@ -263,55 +220,6 @@ export const FixedSidebar: React.FC<FixedSidebarProps> = ({
                   </button>
                 </div>
               ))
-            )}
-          </div>
-        ) : (
-          /* Info Inspector */
-          <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <div>
-              <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Title</div>
-              <div style={{ fontSize: '12px', fontWeight: 600, marginTop: '2px' }}>{document.metadata.title}</div>
-            </div>
-
-            {document.metadata.author && (
-              <div>
-                <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Author</div>
-                <div style={{ fontSize: '12px', marginTop: '2px' }}>{document.metadata.author}</div>
-              </div>
-            )}
-
-            {document.metadata.subject && (
-              <div>
-                <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Subject</div>
-                <div style={{ fontSize: '11px', marginTop: '2px', color: 'var(--color-text-secondary)' }}>{document.metadata.subject}</div>
-              </div>
-            )}
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-              <div>
-                <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Format</div>
-                <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-accent)', marginTop: '2px' }}>
-                  {document.metadata.format.toUpperCase()}
-                </div>
-              </div>
-              <div>
-                <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Pages</div>
-                <div style={{ fontSize: '11px', fontWeight: 600, marginTop: '2px' }}>{document.pages.length}</div>
-              </div>
-            </div>
-
-            {document.metadata.producer && (
-              <div>
-                <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Producer</div>
-                <div style={{ fontSize: '11px', marginTop: '2px', color: 'var(--color-text-secondary)' }}>{document.metadata.producer}</div>
-              </div>
-            )}
-
-            {document.metadata.creationDate && (
-              <div>
-                <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Created</div>
-                <div style={{ fontSize: '11px', marginTop: '2px', color: 'var(--color-text-secondary)' }}>{document.metadata.creationDate}</div>
-              </div>
             )}
           </div>
         )}

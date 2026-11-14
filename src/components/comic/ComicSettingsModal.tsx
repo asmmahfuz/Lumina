@@ -5,7 +5,8 @@
 
 import React from 'react';
 import { ComicSettings, ComicReadingMode, ComicFitMode } from '@/types/comic';
-import { X, BookOpen, Layers, ArrowLeftRight, AlignVerticalSpaceAround } from 'lucide-react';
+import { useReaderContext } from '@/app/Providers';
+import { X, BookOpen, Layers, ArrowLeftRight, AlignVerticalSpaceAround, PanelBottom, PanelRight } from 'lucide-react';
 
 interface ComicSettingsModalProps {
   isOpen: boolean;
@@ -20,7 +21,9 @@ export const ComicSettingsModal: React.FC<ComicSettingsModalProps> = ({
   settings,
   onUpdateSettings,
 }) => {
+  const { settings: appSettings, updateSettings: updateAppSettings } = useReaderContext();
   if (!isOpen) return null;
+  const navPosition = appSettings.navPosition || 'bottom';
 
   const readingModes: { id: ComicReadingMode; label: string; icon: React.ReactNode; desc: string }[] = [
     {
@@ -50,6 +53,7 @@ export const ComicSettingsModal: React.FC<ComicSettingsModalProps> = ({
   ];
 
   const fitModes: { id: ComicFitMode; label: string }[] = [
+    { id: 'original', label: '100% Original' },
     { id: 'fit-height', label: 'Fit Height' },
     { id: 'fit-width', label: 'Fit Width' },
     { id: 'fit-screen', label: 'Fit Screen' },
@@ -243,6 +247,35 @@ export const ComicSettingsModal: React.FC<ComicSettingsModalProps> = ({
             </div>
           </div>
         )}
+
+        {/* 5. Control Bar Placement */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '8px', borderTop: '1px solid var(--color-border)' }}>
+          <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>Control Bar Position</span>
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <button
+              onClick={() => updateAppSettings({ navPosition: 'bottom' })}
+              style={{
+                padding: '5px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)',
+                backgroundColor: navPosition === 'bottom' ? 'var(--color-accent-subtle)' : 'var(--color-surface)',
+                color: navPosition === 'bottom' ? 'var(--color-accent)' : 'inherit',
+                fontSize: '11px', display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer',
+              }}
+            >
+              <PanelBottom size={12} /><span>Bottom</span>
+            </button>
+            <button
+              onClick={() => updateAppSettings({ navPosition: 'right' })}
+              style={{
+                padding: '5px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)',
+                backgroundColor: navPosition === 'right' ? 'var(--color-accent-subtle)' : 'var(--color-surface)',
+                color: navPosition === 'right' ? 'var(--color-accent)' : 'inherit',
+                fontSize: '11px', display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer',
+              }}
+            >
+              <PanelRight size={12} /><span>Right</span>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

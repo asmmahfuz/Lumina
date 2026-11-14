@@ -22,6 +22,7 @@ const EXCLUDED_DIRS = new Set([
   '.git',
   '.system_generated',
   'assets',
+  'release',
 ]);
 
 const WARNING_THRESHOLD = 300;
